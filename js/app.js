@@ -30,14 +30,14 @@ const INC = {
 const ABIERTA = e => !['reparada', 'cerrada'].includes(e);
 const PRIO = { baja: ['Baja', '#A8A29E', 'No afecta la operación; se atiende en la próxima ventana.'], media: ['Media', '#F59E0B', 'Afecta el rendimiento; el equipo sigue operando.'], alta: ['Alta', '#EA580C', 'El equipo no puede operar con seguridad.'], critica: ['Crítica', '#DC2626', 'Detiene la producción de la planta.'] };
 const MANT = { programado: 'Programado', en_proceso: 'En proceso', ejecutado: 'Ejecutado', cancelado: 'Cancelado' };
-const ROLES = { admin: 'Administrador', gerencia: 'Gerencia', planta: 'Responsable de planta', mantenimiento: 'Mantenimiento' };
+const ROLES = { admin: 'Jefe de planta', gerencia: 'Gerencia', mantenimiento: 'Mantenimiento' };
 const PLAZO = { menor_semana: 'Menos de una semana', mayor_semana: 'Más de una semana' };
 
 const PERM = {
-  importar: ['admin'], editarEquipo: ['admin', 'mantenimiento'], reportar: ['admin', 'mantenimiento', 'planta'],
-  gestionar: ['admin', 'mantenimiento'], comentar: ['admin', 'mantenimiento', 'planta'], mantener: ['admin', 'mantenimiento'],
+  importar: ['admin'], editarEquipo: ['admin', 'mantenimiento'], reportar: ['admin', 'mantenimiento'],
+  gestionar: ['admin', 'mantenimiento'], comentar: ['admin', 'mantenimiento'], mantener: ['admin', 'mantenimiento'],
   costos: ['admin', 'gerencia', 'mantenimiento'], usuarios: ['admin'], reportes: ['admin', 'gerencia', 'mantenimiento'],
-  observaciones: ['admin', 'mantenimiento', 'planta']
+  observaciones: ['admin', 'mantenimiento']
 };
 const can = a => !!(S.yo && PERM[a].includes(S.yo.rol));
 
@@ -79,7 +79,10 @@ function indexar() {
 const negNom = id => id ? (S.idx.neg.get(id)?.nombre || id) : 'Sin asignar';
 const plantaNom = id => id ? (S.idx.planta.get(id)?.nombre || '—') : 'Sin planta';
 const perfilNom = id => { const p = id && S.idx.perfil.get(id); return p ? (p.nombre || p.username) : '—'; };
-const eqNom = e => e ? e.descripcion : '—';
+const MINUS = new Set(['de', 'del', 'la', 'el', 'y', 'a', 'en', 'para', 'con', 'por', 'sin']);
+const nombreBonito = t => String(t || '').toLowerCase().replace(/\s+/g, ' ').trim()
+  .replace(/[a-záéíóúñü0-9]+/gi, (w, i) => /\d/.test(w) ? w.toUpperCase() : (i > 0 && MINUS.has(w)) ? w : w.charAt(0).toUpperCase() + w.slice(1));
+const eqNom = e => e ? nombreBonito(e.descripcion) : '—';
 const eqCod = e => e ? (e.codigo || e.codigo_sap || e.clave) : '';
 
 const pill = e => `<span class="pill ${esc(e)}">${ESTADOS[e] || e}</span>`;
@@ -177,13 +180,13 @@ function pantallaLogin(aviso = '') {
       <img src="${LOGO_COLOR}" alt="Duracreto">
       <div>
         <h1>Control de maquinaria</h1>
-        <p class="eyebrow" style="margin-top:4px">Concreto · Prefabricados · Trituración · Bloques</p>
+        <p class="eyebrow" style="margin-top:6px">Plataforma de operaciones</p>
       </div>
       <label class="fld">Usuario<input class="ctl" id="lu" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required></label>
       <label class="fld">Contraseña<input class="ctl" id="lp" type="password" autocomplete="current-password" required></label>
       <div class="err" id="le" ${aviso ? '' : 'hidden'}>${esc(aviso)}</div>
       <button class="btn primary" type="submit">Ingresar</button>
-      ${MODO_DEMO ? `<p class="hint">Modo de prueba (sin servidor). Usuarios: <b>admin</b>, <b>gerencia</b>, <b>planta</b>, <b>mantenimiento</b> · contraseña <b>Duracreto2026</b></p>` : '<p class="hint">Cada persona entra con su propio usuario. Si olvidó su contraseña, pídale al administrador que la restablezca.</p>'}
+      <p class="hint">¿Olvidó su contraseña? Pídale al jefe de planta que la restablezca.</p>
     </form>
   </main>`;
   $('#lf').onsubmit = async e => {
@@ -262,7 +265,7 @@ function navItems() {
       ['panel', 'Panel ejecutivo', true], ['inventario', 'Inventario', true], ['falla', 'Reportar falla', can('reportar')],
       ['seguimiento', 'Seguimiento', true, abiertasViejas], ['mantenimiento', 'Mantenimiento', true]]],
     ['Análisis', [['reportes', 'Reportes', can('reportes')]]],
-    ['Administración', [['importar', 'Importar Excel', can('importar')], ['usuarios', 'Usuarios y plantas', can('usuarios')]]]
+    ['Administración', [['importar', 'Cargar inventario', can('importar')], ['usuarios', 'Usuarios', can('usuarios')]]]
   ];
   return g.map(([t, items]) => [t, items.filter(i => i[2])]).filter(([, items]) => items.length);
 }
@@ -315,19 +318,37 @@ const optPlantas = (sel, vacio = 'Todas las plantas', negocio = '') => opts(S.D.
 const filtraNeg = (e, n) => !n || (n === '__sin' ? !e.negocio_id : e.negocio_id === n);
 
 // ================================================================ PANEL EJECUTIVO
+function anillo(pctValor) {
+  const r = 52, c = 2 * Math.PI * r, v = Math.max(0, Math.min(100, pctValor));
+  const color = v >= 85 ? 'var(--ok)' : v >= 70 ? 'var(--warn)' : 'var(--bad)';
+  return `<svg class="ring" viewBox="0 0 128 128" role="img" aria-label="Disponibilidad ${v} %">
+    <circle cx="64" cy="64" r="${r}" fill="none" stroke="var(--surface-3)" stroke-width="12"/>
+    <circle cx="64" cy="64" r="${r}" fill="none" stroke="${color}" stroke-width="12" stroke-linecap="round"
+      stroke-dasharray="${(c * v / 100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 64 64)"/>
+    <text x="64" y="62" text-anchor="middle" class="ring-v">${v}%</text>
+    <text x="64" y="82" text-anchor="middle" class="ring-l">disponible</text></svg>`;
+}
+function saludo() {
+  const h = new Date().getHours();
+  return (h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches') + ', ' + (S.yo.nombre || S.yo.username).split(' ')[0];
+}
+function fechaLarga() {
+  const t = new Date().toLocaleDateString('es-HN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 function vPanel() {
   const f = S.filtros.panel || (S.filtros.panel = { negocio: '' });
+  if (!S.D.equipos.length) {
+    return { titulo: 'Panel ejecutivo', html: `
+      <div class="ph"><div><p class="eyebrow-p">${fechaLarga()}</p><h1>${esc(saludo())}</h1></div></div>
+      <div class="card empty"><b>Todavía no hay equipos cargados</b>${can('importar') ? 'Cargue el inventario desde la hoja de maquinaria.<div style="margin-top:14px"><a class="btn primary" href="#/importar">Cargar inventario</a></div>' : 'El jefe de planta debe cargar el inventario.'}</div>` };
+  }
   const eqs = S.D.equipos.filter(e => e.activo !== false && filtraNeg(e, f.negocio));
   const c = { habilitado: 0, inhabilitado: 0, taller: 0, sin_info: 0 };
   eqs.forEach(e => c[e.estado]++);
-  const total = eqs.length;
-  const conEstado = total - c.sin_info;
-
-  if (!S.D.equipos.length) {
-    return { titulo: 'Panel ejecutivo', html: `
-      <div class="ph"><div><h1>Panel ejecutivo</h1><p>Todavía no hay equipos registrados.</p></div></div>
-      <div class="card empty"><b>Cargue el inventario para empezar</b>${can('importar') ? 'Importe el Excel de maquinaria y el panel se llenará automáticamente.<div style="margin-top:14px"><a class="btn primary" href="#/importar">Importar Excel</a></div>' : 'El administrador debe importar el Excel de maquinaria.'}</div>` };
-  }
+  const total = eqs.length, conEstado = total - c.sin_info;
+  const disp = pct(c.habilitado, conEstado);
 
   const grupos = [...S.D.negocios.map(n => ({ id: n.id, nombre: n.nombre })), { id: '__sin', nombre: 'Sin negocio asignado' }]
     .map(g => { const l = S.D.equipos.filter(e => e.activo !== false && filtraNeg(e, g.id)); const k = { habilitado: 0, inhabilitado: 0, taller: 0, sin_info: 0 }; l.forEach(e => k[e.estado]++); return { ...g, n: l.length, k }; })
@@ -335,79 +356,77 @@ function vPanel() {
 
   const atencion = eqs.filter(e => e.estado === 'inhabilitado' || e.estado === 'taller')
     .sort((a, b) => (a.fecha_inhabilitado || '9999').localeCompare(b.fecha_inhabilitado || '9999'));
-
   const incAb = S.D.incidencias.filter(i => ABIERTA(i.estado) && filtraNeg(S.idx.eq.get(i.equipo_id) || {}, f.negocio));
   const viejas = incAb.filter(i => dias(i.fecha_reporte) > ALERTA_DIAS).sort((a, b) => a.fecha_reporte.localeCompare(b.fecha_reporte));
   const criticas = incAb.filter(i => i.prioridad === 'critica');
-  const hoy = hoyISO();
+  const hoy = hoyISO(), mes = hoy.slice(0, 7);
   const vencidos = S.D.mantenimientos.filter(m => m.estado === 'programado' && m.fecha_programada && m.fecha_programada < hoy && filtraNeg(S.idx.eq.get(m.equipo_id) || {}, f.negocio));
   const sinNeg = S.D.equipos.filter(e => !e.negocio_id).length;
   const sinFecha = atencion.filter(e => !e.fecha_inhabilitado).length;
-  const alertas = [];
-  if (viejas.length) alertas.push(['inhabilitado', `${viejas.length} incidencia${viejas.length > 1 ? 's' : ''} con más de ${ALERTA_DIAS} días abierta${viejas.length > 1 ? 's' : ''}`, `La más antigua: ${viejas[0].codigo} · ${eqNom(S.idx.eq.get(viejas[0].equipo_id))} (${dias(viejas[0].fecha_reporte)} días)`, '#/seguimiento']);
-  if (criticas.length) alertas.push(['inhabilitado', `${criticas.length} falla${criticas.length > 1 ? 's' : ''} crítica${criticas.length > 1 ? 's' : ''} sin resolver`, criticas.slice(0, 2).map(i => i.codigo).join(', '), '#/seguimiento']);
-  if (vencidos.length) alertas.push(['taller', `${vencidos.length} mantenimiento${vencidos.length > 1 ? 's' : ''} vencido${vencidos.length > 1 ? 's' : ''}`, 'Programados con fecha anterior a hoy', '#/mantenimiento']);
-  if (sinFecha) alertas.push(['sin_info', `${sinFecha} equipo${sinFecha > 1 ? 's' : ''} fuera de servicio sin fecha`, 'No se puede calcular su tiempo fuera de servicio', '#/inventario?estado=fuera']);
-  if (sinNeg && can('editarEquipo')) alertas.push(['sin_info', `${sinNeg} equipo${sinNeg > 1 ? 's' : ''} sin negocio asignado`, 'Asígnelos desde su ficha para que cuenten en el negocio correcto', '#/inventario?negocio=__sin']);
-
-  const ult = S.D.importaciones && S.D.importaciones[0];
-  const mes = hoy.slice(0, 7);
   const gastoMes = S.D.incidencias.filter(i => i.fecha_resolucion && i.fecha_resolucion.slice(0, 7) === mes && i.costo_real != null && filtraNeg(S.idx.eq.get(i.equipo_id) || {}, f.negocio)).reduce((a, i) => a + Number(i.costo_real), 0)
     + S.D.mantenimientos.filter(m => m.estado === 'ejecutado' && m.fecha_ejecucion && m.fecha_ejecucion.slice(0, 7) === mes && m.costo != null && filtraNeg(S.idx.eq.get(m.equipo_id) || {}, f.negocio)).reduce((a, m) => a + Number(m.costo), 0);
   const inversion = atencion.filter(e => e.inversion_reparacion).reduce((a, e) => a + Number(e.inversion_reparacion), 0);
-  const misAbiertas = S.D.incidencias.filter(i => ABIERTA(i.estado) && (S.yo.rol === 'planta' ? i.reportado_por === S.yo.id : i.responsable_id === S.yo.id)).length;
-  const franja = [
-    ['Incidencias abiertas', incAb.length, criticas.length ? `${criticas.length} crítica${criticas.length > 1 ? 's' : ''}` : 'ninguna crítica', '#/seguimiento'],
-    ...(can('costos') ? [['Gasto del mes', L(gastoMes), 'reparaciones y mantenimiento', can('reportes') ? '#/reportes' : null], ['Inversión pendiente', L(inversion), 'para habilitar lo que está parado', null]] : []),
-    ...(S.yo.rol === 'planta' ? [['Mis reportes abiertos', misAbiertas, 'fallas que reporté', '#/seguimiento']] : []),
-    ...(S.yo.rol === 'mantenimiento' ? [['Asignadas a mí', misAbiertas, 'reparaciones pendientes', '#/seguimiento']] : [])
+  const asignadas = S.D.incidencias.filter(i => ABIERTA(i.estado) && i.responsable_id === S.yo.id).length;
+
+  const alertas = [];
+  if (viejas.length) alertas.push(['inhabilitado', `${viejas.length} incidencia${viejas.length > 1 ? 's' : ''} con más de ${ALERTA_DIAS} días`, `La más antigua: ${viejas[0].codigo} · ${eqNom(S.idx.eq.get(viejas[0].equipo_id))}`, '#/seguimiento']);
+  if (criticas.length) alertas.push(['inhabilitado', `${criticas.length} falla${criticas.length > 1 ? 's' : ''} crítica${criticas.length > 1 ? 's' : ''} sin resolver`, criticas.slice(0, 3).map(i => i.codigo).join(' · '), '#/seguimiento']);
+  if (vencidos.length) alertas.push(['taller', `${vencidos.length} mantenimiento${vencidos.length > 1 ? 's' : ''} vencido${vencidos.length > 1 ? 's' : ''}`, 'Programados con fecha anterior a hoy', '#/mantenimiento']);
+  if (sinFecha) alertas.push(['sin_info', `${sinFecha} equipos parados sin fecha`, 'Registre desde cuándo están fuera de servicio', '#/inventario?estado=fuera']);
+  if (sinNeg && can('editarEquipo')) alertas.push(['sin_info', `${sinNeg} equipos sin negocio asignado`, 'Asígnelos desde la ficha de cada equipo', '#/inventario?negocio=__sin']);
+
+  const mini = [
+    ['Incidencias abiertas', incAb.length, criticas.length ? `${criticas.length} crítica${criticas.length > 1 ? 's' : ''}` : 'Ninguna crítica', '#/seguimiento'],
+    ...(can('costos') ? [['Gasto del mes', L(gastoMes), 'Reparaciones y mantenimiento', can('reportes') ? '#/reportes' : null], ['Inversión pendiente', L(inversion), 'Para habilitar lo parado', '#/inventario?estado=fuera']] : []),
+    ...(S.yo.rol === 'mantenimiento' ? [['Asignadas a mí', asignadas, 'Reparaciones pendientes', '#/seguimiento']] : [])
   ];
+  const ult = S.D.importaciones && S.D.importaciones[0];
+
   const html = `
   <div class="ph">
-    <div><h1>Panel ejecutivo</h1><p>Estado de la maquinaria${ult ? ` · Excel importado el ${fecha(ult.fecha)}` : ''} · ${fechaHora(new Date().toISOString())}</p></div>
-    <div class="acts">
-      <label class="sr" for="pNeg">Negocio</label>
-      <select class="ctl" id="pNeg" style="width:auto;min-height:40px">${optNegocios(f.negocio)}</select>
-    </div>
+    <div><p class="eyebrow-p">${fechaLarga()}</p><h1>${esc(saludo())}</h1></div>
+    <div class="acts"><label class="sr" for="pNeg">Negocio</label><select class="ctl ctl-pill" id="pNeg">${optNegocios(f.negocio)}</select></div>
   </div>
-  <section class="kpis" aria-label="Indicadores principales">
-    <div class="card kpi"><span class="l">Total de equipos</span><span class="v tnum">${total}</span><span class="s">${new Set(eqs.map(e => e.planta_id)).size} ubicaciones</span></div>
-    <div class="card kpi"><span class="l"><span class="dot habilitado"></span>Habilitados</span><span class="v tnum">${c.habilitado}</span><span class="s ok">${pct(c.habilitado, conEstado)} % de disponibilidad</span></div>
-    <div class="card kpi"><span class="l"><span class="dot inhabilitado"></span>Inhabilitados</span><span class="v tnum">${c.inhabilitado}</span><span class="s">${pct(c.inhabilitado, total)} % del total${c.sin_info ? ` · ${c.sin_info} sin información` : ''}</span></div>
-    <div class="card kpi"><span class="l"><span class="dot taller"></span>En taller</span><span class="v tnum">${c.taller}</span><span class="s">${pct(c.taller, total)} % del total</span></div>
+
+  <section class="card hero" aria-label="Resumen de la maquinaria">
+    <div class="hero-ring">${anillo(disp)}<div class="hero-tot"><b class="tnum">${total}</b><span>equipos en total</span></div></div>
+    <div class="hero-stats">
+      <a class="hs" href="#/inventario?estado=habilitado"><span class="l"><span class="dot habilitado"></span>Operativos</span><b class="tnum">${c.habilitado}</b><small>${pct(c.habilitado, total)} % del total</small></a>
+      <a class="hs" href="#/inventario?estado=inhabilitado"><span class="l"><span class="dot inhabilitado"></span>Inhabilitados</span><b class="tnum">${c.inhabilitado}</b><small>${pct(c.inhabilitado, total)} % del total</small></a>
+      <a class="hs" href="#/inventario?estado=taller"><span class="l"><span class="dot taller"></span>En taller</span><b class="tnum">${c.taller}</b><small>${pct(c.taller, total)} % del total</small></a>
+      ${c.sin_info ? `<a class="hs muted" href="#/inventario?estado=sin_info"><span class="l"><span class="dot sin_info"></span>Sin información</span><b class="tnum">${c.sin_info}</b><small>por completar</small></a>` : ''}
+    </div>
+    <div class="hero-mini">${mini.map(([l, v, s, h]) => `<${h ? `a href="${h}"` : 'div'} class="mi"><span>${l}</span><b class="tnum">${v}</b><small>${s}</small></${h ? 'a' : 'div'}>`).join('')}</div>
   </section>
-  <section class="card franja" aria-label="Resumen">${franja.map(([l, v, s, h]) => `<${h ? `a href="${h}"` : 'div'} class="fr"><span class="l">${l}</span><b class="tnum">${v}</b><small>${s}</small></${h ? 'a' : 'div'}>`).join('')}</section>
+
   <div class="row">
-    <section class="card pad grow" aria-label="Estado por negocio">
-      <div class="card-h" style="padding:0"><h2>Estado por negocio</h2>
-        <div class="legend"><span><i style="background:var(--ok)"></i>Habilitado</span><span><i style="background:var(--bad)"></i>Inhabilitado</span><span><i style="background:var(--warn)"></i>En taller</span><span><i style="background:var(--none)"></i>Sin información</span></div></div>
-      <div class="bars">${grupos.map(g => `<div class="brow">
-        <div class="n"><b>${esc(g.nombre)}</b><small>${g.n} equipos · ${g.k.inhabilitado} inh. · ${g.k.taller} taller</small></div>
+    <section class="card pad grow" aria-label="Disponibilidad por negocio">
+      <div class="sec-h"><h2>Disponibilidad por negocio</h2>
+        <div class="legend"><span><i style="background:var(--ok)"></i>Operativo</span><span><i style="background:var(--bad)"></i>Inhabilitado</span><span><i style="background:var(--warn)"></i>Taller</span></div></div>
+      <div class="bars">${grupos.map(g => { const d = pct(g.k.habilitado, g.n - g.k.sin_info); return `<div class="brow">
+        <div class="n"><b>${esc(g.nombre)}</b><small>${g.n} equipos${g.k.inhabilitado + g.k.taller ? ` · ${g.k.inhabilitado + g.k.taller} parados` : ''}</small></div>
         <div class="bar" role="img" aria-label="${esc(g.nombre)}: ${ORDEN_ESTADOS.map(s => `${g.k[s]} ${ESTADOS[s].toLowerCase()}`).join(', ')}">${ORDEN_ESTADOS.filter(s => g.k[s]).map(s => `<div class="${s}" style="width:${g.k[s] / g.n * 100}%" title="${ESTADOS[s]}: ${g.k[s]}"></div>`).join('')}</div>
-        <span class="pct tnum" title="Disponibilidad">${pct(g.k.habilitado, g.n - g.k.sin_info)} %</span></div>`).join('')}
+        <span class="pct tnum ${d >= 85 ? 'ok' : d >= 70 ? 'warn' : 'bad'}">${d}%</span></div>`; }).join('')}
       </div>
-      <p class="cap" style="margin-top:14px">La cifra de la derecha es la disponibilidad: habilitados entre equipos con estado conocido.</p>
     </section>
     <section class="card pad side-col" aria-label="Alertas">
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px"><h2>Alertas</h2>${alertas.length ? `<span class="count">${alertas.length}</span>` : ''}</div>
-      ${alertas.length ? `<div class="alerts">${alertas.map(([t, b, s, h]) => `<div class="alert"><span class="dot ${t}"></span><div><b>${esc(b)}</b><small>${esc(s)}</small><a href="${h}">Ver</a></div></div>`).join('')}</div>` : '<p class="cap">Sin alertas por ahora.</p>'}
+      <div class="sec-h"><h2>Alertas</h2>${alertas.length ? `<span class="count">${alertas.length}</span>` : ''}</div>
+      ${alertas.length ? `<div class="alerts">${alertas.map(([t, b, s, h]) => `<a class="alert" href="${h}"><span class="dot ${t}"></span><div><b>${esc(b)}</b><small>${esc(s)}</small></div><span class="chev">›</span></a>`).join('')}</div>` : '<p class="cap">Todo en orden. No hay alertas.</p>'}
     </section>
   </div>
-  <section class="card" aria-label="Equipos que requieren atención">
-    <div class="card-h"><h2>Equipos que requieren atención</h2><a href="#/inventario?estado=fuera" style="font-size:13px;font-weight:600">Ver los ${atencion.length} fuera de servicio</a></div>
-    ${atencion.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Equipo</th><th>Negocio</th><th>Planta</th><th>Estado</th><th>Causa de inactividad</th><th class="r">Fuera de servicio</th></tr></thead><tbody>
-      ${atencion.slice(0, 10).map(e => { const d = dias(e.fecha_inhabilitado); return `<tr class="click" data-href="#/equipo/${e.id}">
-        <td><a class="lk" href="#/equipo/${e.id}">${esc(eqNom(e))}</a><span class="sub">${esc(eqCod(e))}</span></td><td>${esc(negNom(e.negocio_id))}</td><td>${esc(plantaNom(e.planta_id))}</td><td>${pill(e.estado)}</td>
-        <td class="clip" title="${esc(e.causa_inactividad)}">${esc(e.causa_inactividad || '—')}</td>
-        <td class="r nw tnum ${d > ALERTA_DIAS ? 'late' : d > AVISO_DIAS ? 'late-soft' : ''}">${d == null ? '<span class="chip">Sin fecha</span>' : d + ' días'}</td></tr>`; }).join('')}
-    </tbody></table></div>` : '<div class="empty">No hay equipos fuera de servicio.</div>'}
-  </section>`;
+
+  <section class="card pad" aria-label="Equipos que requieren atención">
+    <div class="sec-h"><h2>Equipos parados más tiempo</h2><a class="link-sm" href="#/inventario?estado=fuera">Ver los ${atencion.length} →</a></div>
+    ${atencion.length ? `<div class="att">${atencion.slice(0, 6).map(e => { const d = dias(e.fecha_inhabilitado); return `<a class="att-it" href="#/equipo/${e.id}">
+      <div class="att-n"><b>${esc(eqNom(e))}</b><small>${esc(eqCod(e))} · ${esc(plantaNom(e.planta_id))}</small></div>
+      <div class="att-c hm" title="${esc(e.causa_inactividad || '')}">${esc(e.causa_inactividad ? nombreBonito(e.causa_inactividad).slice(0, 70) : 'Sin causa registrada')}</div>
+      ${pill(e.estado)}
+      <div class="att-d tnum ${d > ALERTA_DIAS ? 'late' : d > AVISO_DIAS ? 'late-soft' : ''}">${d == null ? '<span class="chip">Sin fecha</span>' : `<b>${d}</b> días`}</div></a>`; }).join('')}</div>` : '<p class="cap">No hay equipos fuera de servicio.</p>'}
+  </section>
+  <p class="foot-note">${ult ? `Inventario actualizado el ${fecha(ult.fecha)}` : ''}</p>`;
   return {
     titulo: 'Panel ejecutivo', html,
-    bind: m => {
-      $('#pNeg', m).onchange = e => { f.negocio = e.target.value; render(); };
-      filasClicables(m);
-    }
+    bind: m => { $('#pNeg', m).onchange = e => { f.negocio = e.target.value; render(); }; }
   };
 }
 
@@ -418,7 +437,7 @@ function filasClicables(m) {
 // ================================================================ INVENTARIO
 function vInventario(_, params) {
   const f = S.filtros.inv || (S.filtros.inv = { q: '', negocio: '', planta: '', estado: '', tipo: '' });
-  if (params.estado !== undefined) f.estado = params.estado;
+  if (params.estado !== undefined) { f.estado = params.estado; f.pag = 1; }
   if (params.negocio !== undefined) f.negocio = params.negocio;
   if (params.estado !== undefined || params.negocio !== undefined) history.replaceState(null, '', '#/inventario');
   const tipos = [...new Set(S.D.equipos.map(e => e.tipo).filter(Boolean))].sort();
@@ -428,39 +447,51 @@ function vInventario(_, params) {
     <div><h1>Inventario de equipos</h1><p id="invCuenta"></p></div>
     <div class="acts">
       <button class="btn" id="invCsv">${ico('descargar')}Exportar CSV</button>
-      ${can('importar') ? '<a class="btn" href="#/importar">Importar Excel</a>' : ''}
+      ${can('importar') ? '<a class="btn hm" href="#/importar">Actualizar desde la hoja</a>' : ''}
       ${can('editarEquipo') ? '<button class="btn primary" id="invNuevo">+ Nuevo equipo</button>' : ''}
     </div>
   </div>
+  <div class="segs" id="invSeg" role="tablist" aria-label="Estado"></div>
   <div class="card filters" role="search">
-    <div class="search">${ico('buscar')}<label class="sr" for="invQ">Buscar</label><input class="ctl" id="invQ" type="search" placeholder="Buscar por código, equipo, marca o ubicación" value="${esc(f.q)}"></div>
+    <div class="search">${ico('buscar')}<label class="sr" for="invQ">Buscar</label><input class="ctl" id="invQ" type="search" placeholder="Buscar equipo, código o ubicación" value="${esc(f.q)}"></div>
     <label class="sr" for="invNeg">Negocio</label><select class="ctl" id="invNeg">${optNegocios(f.negocio)}</select>
     <label class="sr" for="invPl">Planta</label><select class="ctl" id="invPl">${optPlantas(f.planta, 'Todas las plantas', f.negocio)}</select>
-    <label class="sr" for="invEst">Estado</label><select class="ctl" id="invEst">${opts([['fuera', 'Fuera de servicio (inh. + taller)'], ...ORDEN_ESTADOS.map(s => [s, ESTADOS[s]])], f.estado, 'Todos los estados')}</select>
-    <label class="sr" for="invTipo">Tipo</label><select class="ctl" id="invTipo">${opts(tipos.map(t => [t, t]), f.tipo, 'Todos los tipos')}</select>
+    <label class="sr" for="invTipo">Tipo</label><select class="ctl hm" id="invTipo">${opts(tipos.map(t => [t, t]), f.tipo, 'Todos los tipos')}</select>
   </div>
   <section class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr>
-    <th>Código</th><th>Equipo</th><th>Negocio</th><th>Planta</th><th>Marca</th><th>Modelo</th><th>Año</th><th>Estado</th><th>Observaciones</th>
+    <th>Equipo</th><th class="hm">Negocio</th><th class="hm">Planta</th><th class="hm">Marca / modelo</th><th>Estado</th><th class="hm">Observaciones</th>
   </tr></thead><tbody id="invBody"></tbody></table></div><div class="tbl-foot" id="invFoot"></div></section>`;
 
-  const filtrar = () => {
+  const POR_PAG = 20;
+  f.pag = f.pag || 1;
+  const base = () => {
     const q = f.q.trim().toUpperCase();
     return S.D.equipos.filter(e => e.activo !== false && filtraNeg(e, f.negocio) && (!f.planta || String(e.planta_id) === f.planta)
-      && (!f.estado || (f.estado === 'fuera' ? ['inhabilitado', 'taller'].includes(e.estado) : e.estado === f.estado))
       && (!f.tipo || e.tipo === f.tipo)
       && (!q || [e.clave, e.codigo, e.codigo_sap, e.descripcion, e.marca, e.modelo, e.ubicacion_excel, plantaNom(e.planta_id)].some(x => String(x || '').toUpperCase().includes(q))));
   };
+  const porEstado = (l, st) => !st ? l : l.filter(e => st === 'fuera' ? ['inhabilitado', 'taller'].includes(e.estado) : e.estado === st);
+  const filtrar = () => porEstado(base(), f.estado);
   const pintar = m => {
-    const l = filtrar();
-    $('#invCuenta', m).textContent = `${l.length} de ${S.D.equipos.length} equipos`;
-    $('#invBody', m).innerHTML = l.length ? l.map(e => `<tr class="click" data-href="#/equipo/${e.id}">
-      <td class="nw tnum">${esc(eqCod(e))}</td>
-      <td><a class="lk" href="#/equipo/${e.id}">${esc(e.descripcion)}</a><span class="sub">${esc(e.tipo || '')}</span></td>
-      <td class="nw">${esc(negNom(e.negocio_id))}</td><td class="nw">${esc(plantaNom(e.planta_id))}</td>
-      <td>${esc(e.marca || '—')}</td><td>${esc(e.modelo || '—')}</td><td class="tnum">${esc(e.anio || '—')}</td>
-      <td>${pill(e.estado)}</td><td class="clip" title="${esc(e.observaciones || e.causa_inactividad || '')}" style="color:var(--muted)">${esc(e.observaciones || e.causa_inactividad || '—')}</td></tr>`).join('')
-      : '<tr><td colspan="9"><div class="empty"><b>Sin resultados</b>Pruebe con otros filtros.</div></td></tr>';
-    $('#invFoot', m).textContent = l.length ? `Mostrando ${l.length} equipos` : '';
+    const b = base(), l = porEstado(b, f.estado);
+    const paginas = Math.max(1, Math.ceil(l.length / POR_PAG));
+    if (f.pag > paginas) f.pag = paginas;
+    const vis = l.slice((f.pag - 1) * POR_PAG, f.pag * POR_PAG);
+    $('#invCuenta', m).textContent = `${S.D.equipos.length} equipos registrados`;
+    $('#invSeg', m).innerHTML = [['', 'Todos'], ['habilitado', 'Operativos'], ['fuera', 'Parados'], ['inhabilitado', 'Inhabilitados'], ['taller', 'En taller'], ['sin_info', 'Sin información']]
+      .map(([k, t]) => { const n = porEstado(b, k).length; return n || !k ? `<button role="tab" aria-selected="${f.estado === k}" data-e="${k}">${k && k !== 'fuera' ? `<span class="dot ${k}"></span>` : ''}${t}<span class="n">${n}</span></button>` : ''; }).join('');
+    $$('#invSeg button', m).forEach(x => x.onclick = () => { f.estado = x.dataset.e; f.pag = 1; pintar(m); });
+    $('#invBody', m).innerHTML = vis.length ? vis.map(e => `<tr class="click" data-href="#/equipo/${e.id}">
+      <td><a class="lk" href="#/equipo/${e.id}">${esc(eqNom(e))}</a><span class="sub">${esc(eqCod(e))}<span class="sm-only"> · ${esc(plantaNom(e.planta_id))}</span></span></td>
+      <td class="nw hm">${esc(negNom(e.negocio_id))}</td><td class="nw hm">${esc(plantaNom(e.planta_id))}</td>
+      <td class="hm">${e.marca || e.modelo ? esc([e.marca, e.modelo, e.anio].filter(Boolean).join(' · ')) : '<span class="cap">—</span>'}</td>
+      <td>${pill(e.estado)}</td><td class="clip hm" title="${esc(e.observaciones || e.causa_inactividad || '')}" style="color:var(--muted)">${esc(e.observaciones || (e.causa_inactividad ? nombreBonito(e.causa_inactividad) : '') || '—')}</td></tr>`).join('')
+      : '<tr><td colspan="6"><div class="empty"><b>Sin resultados</b>Pruebe con otros filtros.</div></td></tr>';
+    $('#invFoot', m).innerHTML = l.length ? `<span>${(f.pag - 1) * POR_PAG + 1}–${Math.min(f.pag * POR_PAG, l.length)} de ${l.length}</span>
+      <div class="pager"><button class="btn sm" id="pgA" ${f.pag <= 1 ? 'disabled' : ''}>Anterior</button><span class="cap">Página ${f.pag} de ${paginas}</span><button class="btn sm" id="pgS" ${f.pag >= paginas ? 'disabled' : ''}>Siguiente</button></div>` : '';
+    const pa = $('#pgA', m), ps = $('#pgS', m);
+    if (pa) pa.onclick = () => { f.pag--; pintar(m); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+    if (ps) ps.onclick = () => { f.pag++; pintar(m); window.scrollTo({ top: 0, behavior: 'smooth' }); };
     filasClicables(m);
     return l;
   };
@@ -468,11 +499,10 @@ function vInventario(_, params) {
     titulo: 'Inventario', html,
     bind: m => {
       pintar(m);
-      $('#invQ', m).oninput = debounce(e => { f.q = e.target.value; pintar(m); });
-      $('#invNeg', m).onchange = e => { f.negocio = e.target.value; f.planta = ''; render(); };
-      $('#invPl', m).onchange = e => { f.planta = e.target.value; pintar(m); };
-      $('#invEst', m).onchange = e => { f.estado = e.target.value; pintar(m); };
-      $('#invTipo', m).onchange = e => { f.tipo = e.target.value; pintar(m); };
+      $('#invQ', m).oninput = debounce(e => { f.q = e.target.value; f.pag = 1; pintar(m); });
+      $('#invNeg', m).onchange = e => { f.negocio = e.target.value; f.planta = ''; f.pag = 1; render(); };
+      $('#invPl', m).onchange = e => { f.planta = e.target.value; f.pag = 1; pintar(m); };
+      $('#invTipo', m).onchange = e => { f.tipo = e.target.value; f.pag = 1; pintar(m); };
       $('#invCsv', m).onclick = () => {
         const l = filtrar();
         csv(`inventario-maquinaria-${hoyISO()}.csv`,
@@ -561,7 +591,7 @@ function vEquipo(id) {
   const html = `
   <div><a class="back" href="#/inventario">${ico('atras', 'width="16" height="16"')}Inventario</a>
   <div class="ph"><div>
-    <h1>${esc(e.descripcion)}</h1>
+    <h1>${esc(eqNom(e))}</h1>
     <p style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span>${esc(eqCod(e))}${e.codigo_sap && e.codigo ? ' · ' + esc(e.codigo_sap) : ''}</span>${pill(e.estado)}${d != null && e.estado !== 'habilitado' ? `<span class="${d > ALERTA_DIAS ? 'late' : ''}">${d} días fuera de servicio</span>` : ''}</p></div>
     <div class="acts">
       ${can('reportar') ? `<a class="btn primary" href="#/falla?equipo=${e.id}">Reportar falla</a>` : ''}
@@ -586,7 +616,7 @@ function vEquipo(id) {
           ${can('costos') ? `<div><dt>Inversión para reparación</dt><dd>${L2(e.inversion_reparacion)}</dd></div>` : ''}
           <div><dt>Origen</dt><dd>${e.origen === 'excel' ? `Excel · ${esc(e.hoja_origen || '')}${e.fila_origen ? ', fila ' + e.fila_origen : ''}` : 'Registro manual'}</dd></div>
         </dl>
-        ${e.causa_inactividad ? `<div class="note" style="margin-top:16px"><b>Causa de inactividad: </b>${esc(e.causa_inactividad)}</div>` : ''}
+        ${e.causa_inactividad ? `<div class="note" style="margin-top:16px"><b>Causa de inactividad: </b>${esc(nombreBonito(e.causa_inactividad))}</div>` : ''}
       </section>
       <section class="card pad"><h2 style="margin-bottom:12px">Historial de incidencias y mantenimientos</h2>
         ${hist.length ? `<div class="tl">${hist.map(h => `<div class="it"><i></i><div><small>${fechaHora(h.f)} · <b>${esc(h.t)}</b>${h.u ? ' · ' + esc(perfilNom(h.u)) : ''}</small><p>${h.h ? `<a href="${h.h}">${esc(h.x)}</a>` : esc(h.x)}</p></div></div>`).join('')}</div>` : '<p class="cap">Sin registros todavía.</p>'}
@@ -603,7 +633,7 @@ function vEquipo(id) {
     </div>
   </div>`;
   return {
-    titulo: e.descripcion, html,
+    titulo: eqNom(e), html,
     bind: m => {
       const eb = $('#eqEdit', m); if (eb) eb.onclick = () => formEquipo(e);
       const mb = $('#eqMant', m); if (mb) mb.onclick = () => formMantenimiento({ equipo_id: e.id, tipo: 'preventivo', estado: 'programado' });
@@ -720,8 +750,8 @@ function vSeguimiento() {
     <button class="btn sm" id="segCsv" style="margin-left:auto">${ico('descargar')}CSV</button>
   </div>
   <section class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr>
-    <th>Código</th><th>Equipo</th><th>Problema</th><th>Prioridad</th><th>Responsable</th><th>Estado</th><th class="r">Días</th>
-    ${can('costos') ? '<th class="r">Costo est.</th><th class="r">Costo real</th>' : ''}<th>Fin estimado</th>
+    <th>Código</th><th>Equipo</th><th class="hm">Problema</th><th class="hm">Prioridad</th><th class="hm">Responsable</th><th>Estado</th><th class="r">Días</th>
+    ${can('costos') ? '<th class="r hm">Costo est.</th><th class="r hm">Costo real</th>' : ''}<th class="hm">Fin estimado</th>
   </tr></thead><tbody id="segBody"></tbody></table></div></section>`;
 
   const base = () => S.D.incidencias.filter(i => {
@@ -741,12 +771,12 @@ function vSeguimiento() {
       return `<tr class="click" data-href="#/incidencia/${i.id}">
         <td class="nw"><a class="lk" href="#/incidencia/${i.id}">${i.codigo}</a></td>
         <td><b style="font-weight:600">${esc(eqNom(e))}</b><span class="sub">${esc(eqCod(e))} · ${esc(plantaNom(e?.planta_id))}</span></td>
-        <td class="clip" title="${esc(i.descripcion)}">${esc(i.descripcion)}</td>
-        <td>${prio(i.prioridad)}</td><td class="nw">${i.responsable_id ? esc(perfilNom(i.responsable_id)) : '<span class="cap">Sin asignar</span>'}</td>
+        <td class="clip hm" title="${esc(i.descripcion)}">${esc(i.descripcion)}</td>
+        <td class="hm">${prio(i.prioridad)}</td><td class="nw hm">${i.responsable_id ? esc(perfilNom(i.responsable_id)) : '<span class="cap">Sin asignar</span>'}</td>
         <td>${tsPill(i.estado)}</td>
         <td class="r nw tnum ${ab && d > ALERTA_DIAS ? 'late' : ab && d > AVISO_DIAS ? 'late-soft' : ''}">${ab ? d + ' días' : `<span class="cap">Resuelta en ${d} d</span>`}</td>
-        ${can('costos') ? `<td class="r nw tnum">${L(i.costo_estimado)}</td><td class="r nw tnum">${L(i.costo_real)}</td>` : ''}
-        <td class="nw">${fecha(i.fecha_estimada)}</td></tr>`;
+        ${can('costos') ? `<td class="r nw tnum hm">${L(i.costo_estimado)}</td><td class="r nw tnum hm">${L(i.costo_real)}</td>` : ''}
+        <td class="nw hm">${fecha(i.fecha_estimada)}</td></tr>`;
     }).join('') : `<tr><td colspan="10"><div class="empty"><b>No hay incidencias en esta vista</b>${f.tab === 'abiertas' ? 'Todo al día.' : ''}</div></td></tr>`;
     filasClicables(m);
     return l;
@@ -865,7 +895,7 @@ function vMantenimiento() {
     <select class="ctl" id="mtTipo" aria-label="Tipo">${opts([['preventivo', 'Preventivo'], ['correctivo', 'Correctivo']], f.tipo, 'Preventivo y correctivo')}</select>
   </div>
   <section class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr>
-    <th>Equipo</th><th>Tipo</th><th>Programada</th><th>Ejecución</th><th>Responsable</th><th>Descripción</th>${can('costos') ? '<th class="r">Costo</th>' : ''}<th>Estado</th><th>Próxima</th>
+    <th>Equipo</th><th class="hm">Tipo</th><th>Programada</th><th class="hm">Ejecución</th><th class="hm">Responsable</th><th class="hm">Descripción</th>${can('costos') ? '<th class="r hm">Costo</th>' : ''}<th>Estado</th><th class="hm">Próxima</th>
   </tr></thead><tbody id="mtBody"></tbody></table></div></section>`;
   const TABS = { pendientes: ['Pendientes', m => ['programado', 'en_proceso'].includes(m.estado)], ejecutados: ['Ejecutados', m => m.estado === 'ejecutado'], todos: ['Todos', () => true] };
   const pintar = mm => {
@@ -880,10 +910,10 @@ function vMantenimiento() {
       const e = S.idx.eq.get(m.equipo_id), vencido = m.estado === 'programado' && m.fecha_programada && m.fecha_programada < hoy;
       return `<tr class="${can('mantener') ? 'click' : ''}" data-id="${m.id}">
         <td><b style="font-weight:600">${esc(eqNom(e))}</b><span class="sub">${esc(eqCod(e))} · ${esc(plantaNom(e?.planta_id))}</span></td>
-        <td>${m.tipo === 'preventivo' ? 'Preventivo' : 'Correctivo'}</td>
-        <td class="nw ${vencido ? 'late' : ''}">${fecha(m.fecha_programada)}${vencido ? ' · vencido' : ''}</td><td class="nw">${fecha(m.fecha_ejecucion)}</td>
-        <td>${esc(m.responsable || '—')}</td><td class="clip" title="${esc(m.descripcion)}">${esc(m.descripcion)}</td>
-        ${can('costos') ? `<td class="r tnum nw">${L(m.costo)}</td>` : ''}<td><span class="chip">${MANT[m.estado]}</span></td><td class="nw">${fecha(m.proxima_fecha)}</td></tr>`;
+        <td class="hm">${m.tipo === 'preventivo' ? 'Preventivo' : 'Correctivo'}</td>
+        <td class="nw ${vencido ? 'late' : ''}">${fecha(m.fecha_programada)}${vencido ? ' · vencido' : ''}</td><td class="nw hm">${fecha(m.fecha_ejecucion)}</td>
+        <td class="hm">${esc(m.responsable || '—')}</td><td class="clip hm" title="${esc(m.descripcion)}">${esc(m.descripcion)}</td>
+        ${can('costos') ? `<td class="r tnum nw hm">${L(m.costo)}</td>` : ''}<td><span class="chip">${MANT[m.estado]}</span></td><td class="nw hm">${fecha(m.proxima_fecha)}</td></tr>`;
     }).join('') : '<tr><td colspan="9"><div class="empty"><b>Sin mantenimientos en esta vista</b>Regístrelos desde aquí o desde la ficha de cada equipo.</div></td></tr>';
     if (can('mantener')) $$('tr.click', mm).forEach(tr => tr.onclick = () => formMantenimiento(S.D.mantenimientos.find(x => String(x.id) === tr.dataset.id)));
   };
@@ -1002,7 +1032,7 @@ function vReportes() {
   <div class="row top">
     <section class="card" style="flex:1 1 100%;min-width:0"><div class="card-h"><h2>Equipos con mayor tiempo fuera de servicio</h2>${sinFecha ? `<span class="cap">${sinFecha} sin fecha no se incluyen</span>` : ''}</div>
       ${topInact.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Equipo</th><th>Negocio</th><th>Estado</th><th>Desde</th><th class="r">Días</th>${can('costos') ? '<th class="r">Inversión estimada</th>' : ''}</tr></thead><tbody>
-      ${topInact.map(e => `<tr class="click" data-href="#/equipo/${e.id}"><td><a class="lk" href="#/equipo/${e.id}">${esc(e.descripcion)}</a><span class="sub">${esc(eqCod(e))} · ${esc(plantaNom(e.planta_id))}</span></td><td class="nw">${esc(negNom(e.negocio_id))}</td><td>${pill(e.estado)}</td><td class="nw">${fecha(e.fecha_inhabilitado)}</td><td class="r tnum ${dias(e.fecha_inhabilitado) > ALERTA_DIAS ? 'late' : ''}">${dias(e.fecha_inhabilitado)}</td>${can('costos') ? `<td class="r tnum nw">${L(e.inversion_reparacion)}</td>` : ''}</tr>`).join('')}
+      ${topInact.map(e => `<tr class="click" data-href="#/equipo/${e.id}"><td><a class="lk" href="#/equipo/${e.id}">${esc(eqNom(e))}</a><span class="sub">${esc(eqCod(e))} · ${esc(plantaNom(e.planta_id))}</span></td><td class="nw hm">${esc(negNom(e.negocio_id))}</td><td>${pill(e.estado)}</td><td class="nw">${fecha(e.fecha_inhabilitado)}</td><td class="r tnum ${dias(e.fecha_inhabilitado) > ALERTA_DIAS ? 'late' : ''}">${dias(e.fecha_inhabilitado)}</td>${can('costos') ? `<td class="r tnum nw">${L(e.inversion_reparacion)}</td>` : ''}</tr>`).join('')}
       </tbody></table></div>` : '<div class="empty">Sin equipos fuera de servicio con fecha registrada.</div>'}
     </section>
     <section class="card" style="flex:1 1 100%;min-width:0"><div class="card-h"><h2>Equipos con más incidencias</h2></div>
@@ -1123,13 +1153,13 @@ function vImportar() {
     </section>`;
   }
   const html = `
-  <div class="ph"><div><h1>Importar Excel</h1><p>Inventario inicial y actualizaciones desde el archivo de maquinaria.</p></div></div>
+  <div class="ph"><div><h1>Cargar inventario</h1><p>Actualice los equipos desde la hoja de maquinaria o un archivo Excel.</p></div></div>
   ${cuerpo}
   ${S.D.importaciones.length ? `<section class="card"><div class="card-h"><h2>Importaciones anteriores</h2></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Archivo</th><th>Usuario</th><th class="r">Nuevos</th><th class="r">Actualizados</th><th class="r">Rechazados</th></tr></thead><tbody>
     ${S.D.importaciones.map(x => `<tr><td class="nw">${fechaHora(x.fecha)}</td><td>${esc(x.archivo)}</td><td>${esc(perfilNom(x.usuario_id))}</td><td class="r tnum">${x.nuevos}</td><td class="r tnum">${x.actualizados}</td><td class="r tnum">${x.rechazados}</td></tr>`).join('')}
   </tbody></table></div></section>` : ''}`;
   return {
-    titulo: 'Importar Excel', html,
+    titulo: 'Inventario: carga', html,
     bind: m => {
       const fi = $('#impFile', m);
       const analizar = (archivo, hojas) => {
@@ -1182,19 +1212,18 @@ function vImportar() {
 function vUsuarios() {
   const pp = S.D.perfilPlantas;
   const html = `
-  <div class="ph"><div><h1>Usuarios y plantas</h1><p>Quién entra, con qué permisos y qué plantas ve cada responsable.</p></div>
+  <div class="ph"><div><h1>Usuarios</h1><p>Quién entra y qué puede hacer cada rol.</p></div>
     <div class="acts"><button class="btn primary" id="uNuevo">+ Nuevo usuario</button></div></div>
-  <section class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Plantas</th><th>Estado</th><th></th></tr></thead><tbody>
-    ${S.D.perfiles.map(p => `<tr><td class="nw"><b>${esc(p.username)}</b></td><td>${esc(p.nombre)}<span class="sub">${esc(p.cargo || '')}</span></td><td class="nw">${ROLES[p.rol]}</td>
-      <td>${p.rol === 'planta' ? (pp.filter(x => x.perfil_id === p.id).map(x => esc(plantaNom(x.planta_id))).join(', ') || '<span class="late-soft">Sin plantas asignadas</span>') : '<span class="cap">Todas</span>'}</td>
+  <section class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th><th></th></tr></thead><tbody>
+    ${S.D.perfiles.map(p => `<tr><td class="nw"><b>${esc(p.username)}</b></td><td>${esc(p.nombre)}<span class="sub">${esc(p.cargo || '')}</span></td><td class="nw">${ROLES[p.rol] || p.rol}</td>
       <td>${p.activo ? '<span class="pill habilitado">Activo</span>' : '<span class="pill sin_info">Inactivo</span>'}</td>
       <td class="nw r"><button class="btn sm" data-ed="${p.id}">Editar</button> <button class="btn sm" data-pw="${p.id}">Contraseña</button></td></tr>`).join('')}
   </tbody></table></div></section>
   <section class="card"><div class="card-h"><div><h2>Permisos por rol</h2></div></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Acción</th>${Object.values(ROLES).map(r => `<th>${r}</th>`).join('')}</tr></thead><tbody>
-    ${[['Ver panel e inventario', 'all'], ['Ver costos y reportes', 'costos'], ['Reportar fallas', 'reportar'], ['Comentar incidencias', 'comentar'], ['Actualizar reparaciones y cerrar incidencias', 'gestionar'], ['Registrar mantenimientos', 'mantener'], ['Crear y editar equipos', 'editarEquipo'], ['Editar observaciones', 'observaciones'], ['Importar Excel', 'importar'], ['Gestionar usuarios', 'usuarios']]
+    ${[['Ver panel e inventario', 'all'], ['Ver costos y reportes', 'costos'], ['Reportar fallas', 'reportar'], ['Comentar incidencias', 'comentar'], ['Actualizar reparaciones y cerrar incidencias', 'gestionar'], ['Registrar mantenimientos', 'mantener'], ['Crear y editar equipos', 'editarEquipo'], ['Editar observaciones', 'observaciones'], ['Cargar inventario', 'importar'], ['Gestionar usuarios', 'usuarios']]
       .map(([t, k]) => `<tr><td>${t}</td>${Object.keys(ROLES).map(r => `<td>${k === 'all' || PERM[k].includes(r) ? '✓' : '—'}</td>`).join('')}</tr>`).join('')}
-    </tbody></table></div><p class="cap" style="padding:12px 20px">Los responsables de planta solo ven los equipos de las plantas que se les asignen. Los permisos se aplican también en la base de datos.</p></section>
+    </tbody></table></div><p class="cap" style="padding:12px 20px">Los permisos se aplican en el servidor, no solo en la pantalla.</p></section>
   <section class="card"><div class="card-h"><h2>Plantas y ubicaciones</h2><span class="cap">Asigne el negocio principal de cada ubicación</span></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Planta</th><th>Negocio principal</th><th class="r">Equipos</th></tr></thead><tbody>
     ${S.D.plantas.map(p => `<tr><td><b style="font-weight:600">${esc(p.nombre)}</b></td><td><select class="ctl" data-pl="${p.id}" style="width:auto;min-height:36px;font-size:13px">${opts(S.D.negocios.map(n => [n.id, n.nombre]), p.negocio_id, 'Varios / sin asignar')}</select></td><td class="r tnum">${S.D.equipos.filter(e => e.planta_id === p.id).length}</td></tr>`).join('') || '<tr><td colspan="3"><div class="empty">Las plantas se crean al importar el Excel.</div></td></tr>'}
@@ -1218,7 +1247,7 @@ function vUsuarios() {
 
 function formUsuario(p) {
   const nuevo = !p;
-  const u = p || { rol: 'planta', activo: true };
+  const u = p || { rol: 'mantenimiento', activo: true };
   const mias = new Set(S.D.perfilPlantas.filter(x => p && x.perfil_id === p.id).map(x => x.planta_id));
   modal(`
     <h2>${nuevo ? 'Nuevo usuario' : 'Editar ' + esc(u.username)}</h2>
@@ -1232,26 +1261,21 @@ function formUsuario(p) {
         <label class="fld">Cargo<input class="ctl" name="cargo" value="${esc(u.cargo || '')}"></label>
       </div>
       <label class="fld">Rol<select class="ctl" name="rol" id="ufRol">${opts(Object.entries(ROLES), u.rol)}</select></label>
-      <fieldset id="ufPlantas" style="border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin:0" ${u.rol === 'planta' ? '' : 'hidden'}>
-        <legend class="fld" style="padding:0 6px">Plantas que puede ver</legend>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px">${S.D.plantas.map(pl => `<label class="check"><input type="checkbox" name="pl" value="${pl.id}" ${mias.has(pl.id) ? 'checked' : ''}>${esc(pl.nombre)}</label>`).join('') || '<span class="cap">Importe el Excel para crear las plantas.</span>'}</div>
-      </fieldset>
+
       ${nuevo ? '' : `<label class="check"><input type="checkbox" name="activo" ${u.activo ? 'checked' : ''} ${u.id === S.yo.id ? 'disabled' : ''}>Usuario activo (puede iniciar sesión)</label>`}
       <div class="err" id="ufErr" hidden></div>
       <div class="form-acts"><button type="button" class="btn" data-cerrar>Cancelar</button><button class="btn primary" type="submit">Guardar</button></div>
     </form>`, (bg, cerrar) => {
-    $('#ufRol', bg).onchange = e => { $('#ufPlantas', bg).hidden = e.target.value !== 'planta'; };
     $('#uf', bg).onsubmit = async ev => {
       ev.preventDefault();
       const fm = ev.target;
-      const plantas = $$('input[name=pl]:checked', fm).map(x => Number(x.value));
+      const plantas = [];
       const err = $('#ufErr', bg), show = t => { err.textContent = t; err.hidden = false; };
-      if (fm.rol.value === 'planta' && !plantas.length) return show('Asigne al menos una planta al responsable.');
       await accion(ev.submitter, async () => {
         if (nuevo) {
-          await S.db.crearUsuario({ username: fm.username.value.trim().toLowerCase(), password: fm.password.value, nombre: fm.nombre.value.trim(), cargo: fm.cargo.value.trim(), rol: fm.rol.value, plantas: fm.rol.value === 'planta' ? plantas : [] });
+          await S.db.crearUsuario({ username: fm.username.value.trim().toLowerCase(), password: fm.password.value, nombre: fm.nombre.value.trim(), cargo: fm.cargo.value.trim(), rol: fm.rol.value, plantas: [] });
         } else {
-          await S.db.guardarPerfil({ id: u.id, nombre: fm.nombre.value.trim(), cargo: fm.cargo.value.trim(), rol: u.id === S.yo.id ? u.rol : fm.rol.value, activo: u.id === S.yo.id ? true : fm.activo.checked }, fm.rol.value === 'planta' ? plantas : []);
+          await S.db.guardarPerfil({ id: u.id, nombre: fm.nombre.value.trim(), cargo: fm.cargo.value.trim(), rol: u.id === S.yo.id ? u.rol : fm.rol.value, activo: u.id === S.yo.id ? true : fm.activo.checked }, []);
         }
         await recargar(); cerrar(); toast('Usuario guardado'); render();
       });

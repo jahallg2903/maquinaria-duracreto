@@ -96,7 +96,7 @@ class SheetsDB {
 // =====================================================================
 // Demo (solo en este navegador)
 // =====================================================================
-const CLAVE_DEMO = 'dc-maquinaria-demo-v1';
+const CLAVE_DEMO = 'dc-maquinaria-demo-v2';
 const ETQ_INC = { reportada: 'Reportada', pendiente_diagnostico: 'Pendiente de diagnóstico', pendiente_repuestos: 'Pendiente de repuestos', en_reparacion: 'En reparación', en_espera: 'En espera', reparada: 'Reparada', cerrada: 'Cerrada' };
 const L = n => n == null ? '—' : 'L ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -116,11 +116,10 @@ class DemoDB {
         { id: 'trituracion', nombre: 'Trituración', orden: 3 }, { id: 'bloques', nombre: 'Bloques', orden: 4 }],
       plantas: [],
       perfiles: [
-        u('u-admin', 'admin', 'Administrador', 'admin', 'Administración del sistema'),
+        u('u-admin', 'admin', 'Jefe de planta', 'admin', 'Administrador'),
         u('u-gerencia', 'gerencia', 'Gerencia general', 'gerencia', 'Gerente'),
-        u('u-planta', 'planta', 'Responsable San Jorge', 'planta', 'Jefe de planta'),
         u('u-mant', 'mantenimiento', 'Jefe de mantenimiento', 'mantenimiento', 'Mantenimiento')],
-      perfilPlantas: [], plantasDemo: { 'u-planta': ['San Jorge'] },
+      perfilPlantas: [], plantasDemo: {},
       equipos: [], incidencias: [], eventos: [], mantenimientos: [], estados: [], importaciones: [], sesion: null
     };
   }
