@@ -734,11 +734,11 @@ const NEGOCIOS = {
   bloques: 'Bloques'
 };
 
-const norm = s => String(s ?? '')
+const norm = s => String(s == null ? '' : s)
   .normalize('NFD').replace(/[̀-ͯ]/g, '')
   .toUpperCase().replace(/\s+/g, ' ').trim();
 
-const limpio = s => String(s ?? '').replace(/\s+/g, ' ').trim();
+const limpio = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
 
 function codigoValido(v) {
   const c = norm(v);
@@ -834,17 +834,17 @@ function columnas(rows, h) {
   let codigos = 0, descs = 0;
   nombres.forEach((n, c) => {
     if (!n) return;
-    if (n.startsWith('ITEM')) map.item ??= c;
-    else if (n.includes('SAP')) map.sap ??= c;
-    else if (n === 'CODIGO') { if (codigos === 0) map.codigo = c; else map.sap ??= c; codigos++; }
-    else if (n.startsWith('DESCRIPCION')) { if (descs === 0) map.desc = c; else map.estatus ??= c; descs++; }
-    else if (n.startsWith('ESTATUS')) map.estatus ??= c;
+    if (n.startsWith('ITEM')) { if (map.item == null) map.item = c; }
+    else if (n.includes('SAP')) { if (map.sap == null) map.sap = c; }
+    else if (n === 'CODIGO') { if (codigos === 0) map.codigo = c; else { if (map.sap == null) map.sap = c; } codigos++; }
+    else if (n.startsWith('DESCRIPCION')) { if (descs === 0) map.desc = c; else { if (map.estatus == null) map.estatus = c; } descs++; }
+    else if (n.startsWith('ESTATUS')) { if (map.estatus == null) map.estatus = c; }
     else if (n === 'VERDE') map.verde = c;
     else if (n === 'ROJO') map.rojo = c;
     else if (n.includes('% ESTADO')) map.condicion = c;
     else if (n.includes('MENOR A UNA SEMANA')) map.menor = c;
     else if (n.includes('MAYOR A UNA SEMANA')) map.mayor = c;
-    else if (n.startsWith('UBICACION') || n.startsWith('LOCALIZACION')) map.ubic ??= c;
+    else if (n.startsWith('UBICACION') || n.startsWith('LOCALIZACION')) { if (map.ubic == null) map.ubic = c; }
     else if (n.includes('INHABILIT')) map.fecha = c;
     else if (n.includes('INVERSION')) map.inversion = c;
     else if (n.includes('COMBUSTIBLE')) map.consumo = c;
