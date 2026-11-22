@@ -173,6 +173,46 @@ async function entrar() {
   render();
 }
 
+
+// ================================================================ INSTALAR (iPhone / Android / computadora)
+const UA = navigator.userAgent;
+const ES_IOS = /iPhone|iPad|iPod/i.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const ES_SAFARI_IOS = ES_IOS && !/CriOS|FxiOS|EdgiOS|GSA\//i.test(UA);
+const INSTALADA = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+let promptInstalar = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); promptInstalar = e; });
+window.addEventListener('appinstalled', () => { promptInstalar = null; $$('.js-instalar').forEach(x => x.remove()); });
+const ICO_COMPARTIR = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m8 7 4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
+const ICO_BAJAR = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>';
+async function instalarApp() {
+  if (promptInstalar) { promptInstalar.prompt(); const r = await promptInstalar.userChoice; if (r.outcome === 'accepted') promptInstalar = null; return; }
+  const pasos = ES_SAFARI_IOS ? `
+      <li><span class="n">1</span><div>Toque el botón <b>Compartir</b> <span class="kbd">${ICO_COMPARTIR}</span> en la barra de Safari (abajo en iPhone, arriba en iPad).</div></li>
+      <li><span class="n">2</span><div>Deslice hacia abajo y toque <b>Agregar a pantalla de inicio</b>.</div></li>
+      <li><span class="n">3</span><div>Toque <b>Agregar</b>. El ícono de DC Maquinaria aparecerá junto a sus apps.</div></li>`
+    : ES_IOS ? `
+      <li><span class="n">1</span><div>En iPhone la app se instala desde <b>Safari</b>. Copie el enlace y ábralo en Safari.</div></li>
+      <li><span class="n">2</span><div>En Safari toque <b>Compartir</b> <span class="kbd">${ICO_COMPARTIR}</span> y luego <b>Agregar a pantalla de inicio</b>.</div></li>`
+    : `
+      <li><span class="n">1</span><div>En Chrome o Edge, toque el ícono de <b>instalar</b> <span class="kbd">${ICO_BAJAR}</span> a la derecha de la barra de direcciones, o el menú <b>⋮</b> → <b>Instalar app</b>.</div></li>
+      <li><span class="n">2</span><div>En iPhone: abra este enlace en <b>Safari</b> → <b>Compartir</b> → <b>Agregar a pantalla de inicio</b>.</div></li>`;
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `<div class="modal inst" role="dialog" aria-modal="true" aria-labelledby="instT">
+    <div class="inst-h"><img src="icons/apple-touch-icon.png" alt=""><div><h2 id="instT">Instalar DC Maquinaria</h2><p class="cap">Se abre a pantalla completa, como una app, y sin buscar el enlace.</p></div></div>
+    <ol class="inst-p">${pasos}</ol>
+    ${ES_IOS && !ES_SAFARI_IOS ? '<button class="btn" id="instCopiar" style="width:100%;margin-bottom:10px">Copiar enlace</button>' : ''}
+    <button class="btn primary" id="instOk" style="width:100%">Entendido</button></div>`;
+  document.body.appendChild(bg);
+  const cerrar = () => bg.remove();
+  bg.onclick = e => { if (e.target === bg) cerrar(); };
+  $('#instOk', bg).onclick = cerrar;
+  const cp = $('#instCopiar', bg);
+  if (cp) cp.onclick = async () => { try { await navigator.clipboard.writeText(location.origin + location.pathname); cp.textContent = 'Enlace copiado'; } catch { cp.textContent = location.origin + location.pathname; } };
+}
+const botonInstalar = (cls = 'btn') => INSTALADA() ? '' : `<button type="button" class="${cls} js-instalar">${ICO_BAJAR}<span>Descargar la app${ES_IOS ? ' en el iPhone' : ''}</span></button>`;
+function enlazarInstalar(raiz = document) { $$('.js-instalar', raiz).forEach(b => b.onclick = instalarApp); }
+
 function pantallaLogin(aviso = '') {
   $('#app').innerHTML = `
   <main class="login">
@@ -187,8 +227,11 @@ function pantallaLogin(aviso = '') {
       <div class="err" id="le" ${aviso ? '' : 'hidden'}>${esc(aviso)}</div>
       <button class="btn primary" type="submit">Ingresar</button>
       <p class="hint">¿Olvidó su contraseña? Pídale al jefe de planta que la restablezca.</p>
+      ${botonInstalar('btn inst-btn')}
     </form>
   </main>`;
+  enlazarInstalar();
+  if (ES_IOS && !INSTALADA()) { try { if (!localStorage.getItem('dc-inst-visto')) { localStorage.setItem('dc-inst-visto', '1'); setTimeout(instalarApp, 600); } } catch {} }
   $('#lf').onsubmit = async e => {
     e.preventDefault();
     const u = $('#lu').value.trim().toLowerCase(), p = $('#lp').value;
@@ -279,6 +322,7 @@ function marco(ruta, titulo, contenido) {
       <div class="brand"><img src="${LOGO_NEG}" alt="Duracreto"><span>Control de maquinaria</span></div>
       ${navItems().map(([t, items]) => `<div class="grp"><span>${t}</span>${items.map(([k, l, , b]) =>
         `<a class="nav${k === activo ? ' on' : ''}" href="#/${k}" ${k === activo ? 'aria-current="page"' : ''}>${ico(k)}<span>${l}</span>${b ? `<span class="badge" title="Incidencias con más de ${ALERTA_DIAS} días">${b}</span>` : ''}</a>`).join('')}</div>`).join('')}
+      ${INSTALADA() ? '' : `<button type="button" class="nav nav-inst js-instalar">${ICO_BAJAR}<span>Descargar la app</span></button>`}
       <div class="me"><button id="miCuenta" class="me-btn" title="Mi cuenta y contraseña"><span class="avatar">${esc(iniciales(S.yo.nombre || S.yo.username))}</span>
         <span style="min-width:0;text-align:left"><b>${esc(S.yo.nombre || S.yo.username)}</b><small>${ROLES[S.yo.rol]} · Mi cuenta</small></span></button>
         <button id="salir" title="Cerrar sesión" aria-label="Cerrar sesión">${ico('salir', 'width="18" height="18"')}</button></div>
@@ -304,6 +348,7 @@ function render() {
   $('#app').innerHTML = marco(ruta, vista.titulo, vista.html);
   $('#salir').onclick = async () => { await S.db.logout(); S.yo = null; location.hash = ''; pantallaLogin(); };
   $('#miCuenta').onclick = miCuenta;
+  enlazarInstalar();
   $('#abrirMenu').onclick = () => $('#shell').classList.toggle('menu-open');
   $('#shell').addEventListener('click', e => { if (e.target.closest('.nav')) $('#shell').classList.remove('menu-open'); });
   $('#shell').addEventListener('mousedown', e => { if ($('#shell').classList.contains('menu-open') && !e.target.closest('.side') && !e.target.closest('#abrirMenu')) $('#shell').classList.remove('menu-open'); });
