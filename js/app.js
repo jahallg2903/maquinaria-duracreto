@@ -1280,7 +1280,7 @@ function vUsuarios() {
       $$('[data-ed]', m).forEach(b => b.onclick = () => formUsuario(S.idx.perfil.get(b.dataset.ed)));
       $$('[data-pw]', m).forEach(b => b.onclick = () => {
         const p = S.idx.perfil.get(b.dataset.pw);
-        modal(`<h2>Nueva contraseña para ${esc(p.username)}</h2><form class="form" id="pwF"><label class="fld">Contraseña<input class="ctl" type="text" name="pw" autocomplete="off" minlength="8" required><small>8+ caracteres con letras y números. Compártala por un medio privado; la persona deberá cambiarla al entrar.</small></label><div class="form-acts"><button type="button" class="btn" data-cerrar>Cancelar</button><button class="btn primary" type="submit">Cambiar</button></div></form>`,
+        modal(`<h2>Nueva contraseña para ${esc(p.username)}</h2><form class="form" id="pwF"><label class="fld">Contraseña<input class="ctl" type="text" name="pw" autocomplete="off" minlength="8" required><small>8+ caracteres con letras y números. Compártala por un medio privado. La persona podrá cambiarla en «Mi cuenta».</small></label><div class="form-acts"><button type="button" class="btn" data-cerrar>Cancelar</button><button class="btn primary" type="submit">Cambiar</button></div></form>`,
           (bg, cerrar) => { $('#pwF', bg).onsubmit = async ev => { ev.preventDefault(); await accion(ev.submitter, async () => { await S.db.cambiarPassword(p.id, ev.target.pw.value); cerrar(); toast('Contraseña actualizada'); }); }; });
       });
       $$('[data-pl]', m).forEach(s => s.onchange = async () => {
@@ -1299,7 +1299,7 @@ function formUsuario(p) {
     <form class="form" id="uf" novalidate>
       <div class="grid2">
         <label class="fld">Usuario<input class="ctl" name="username" value="${esc(u.username || '')}" ${nuevo ? '' : 'readonly'} autocapitalize="none" placeholder="ej. jmartinez"></label>
-        ${nuevo ? '<label class="fld">Contraseña temporal<input class="ctl" type="text" name="password" autocomplete="off"><small>8+ caracteres con letras y números. La persona deberá cambiarla al entrar.</small></label>' : ''}
+        ${nuevo ? '<label class="fld">Contraseña<input class="ctl" type="text" name="password" autocomplete="off"><small>8+ caracteres con letras y números. La persona podrá cambiarla luego en «Mi cuenta».</small></label>' : ''}
       </div>
       <div class="grid2">
         <label class="fld">Nombre<input class="ctl" name="nombre" value="${esc(u.nombre || '')}"></label>
