@@ -325,3 +325,17 @@ a.alert:hover b { color: #B5650A; }
   .segs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; -webkit-overflow-scrolling: touch; }
   .segs button { flex: 0 0 auto; }
 }
+
+/* ---------- Instalar app ---------- */
+.inst-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; background: var(--surface-2); border-color: var(--line); }
+.side .nav-inst { width: 100%; background: none; border: 1px dashed #3A3A33; color: var(--yellow); margin: 8px 0 4px; cursor: pointer; font: inherit; text-align: left; }
+.side .nav-inst:hover { background: #25251F; }
+.modal.inst { max-width: 420px; padding: 24px; }
+.inst-h { display: flex; gap: 14px; align-items: center; margin-bottom: 18px; }
+.inst-h img { width: 56px; height: 56px; border-radius: 13px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.inst-h h2 { margin: 0 0 2px; }
+.inst-p { list-style: none; padding: 0; margin: 0 0 20px; display: flex; flex-direction: column; gap: 14px; }
+.inst-p li { display: flex; gap: 12px; align-items: flex-start; font-size: 14px; line-height: 1.45; }
+.inst-p .n { flex: 0 0 26px; height: 26px; border-radius: 50%; background: var(--yellow); color: var(--ink); font-weight: 700; display: grid; place-items: center; font-size: 13px; }
+.kbd { display: inline-flex; vertical-align: middle; padding: 2px 5px; border: 1px solid var(--line); border-radius: 6px; color: #0A7AFF; }
+@media (max-width: 760px) { .modal-bg:has(.inst) { place-items: end center; padding: 0; } .modal.inst { border-radius: 18px 18px 0 0; max-width: none; padding-bottom: calc(24px + env(safe-area-inset-bottom)); } }
