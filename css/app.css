@@ -347,3 +347,28 @@ a.alert:hover b { color: #B5650A; }
 .money { display: flex; align-items: stretch; }
 .money span { display: grid; place-items: center; padding: 0 12px; border: 1px solid var(--ctl); border-right: 0; border-radius: 8px 0 0 8px; background: var(--surface-2); font-weight: 600; color: var(--fg-2); }
 .money .ctl { border-radius: 0 8px 8px 0; }
+
+/* ---------- Cambio rápido de estado ---------- */
+.pill-btn { cursor: pointer; gap: 5px; transition: filter .15s, box-shadow .15s; }
+.pill-btn:hover { filter: brightness(.96); box-shadow: 0 0 0 2px rgba(17,17,14,.08); }
+.pill-btn:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+.pill-btn svg { opacity: .65; }
+.modal.est { max-width: 440px; display: flex; flex-direction: column; gap: 14px; }
+.est-h h2 { margin: 0 0 2px; }
+.est-ops { display: flex; flex-direction: column; gap: 10px; }
+.est-op { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 14px 16px; border: 2px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; font: inherit; color: var(--fg); transition: border-color .15s, background .15s; }
+.est-op:hover { border-color: var(--c); }
+.est-op[aria-checked="true"] { border-color: var(--c); background: color-mix(in srgb, var(--c) 9%, #fff); }
+.est-dot { flex: 0 0 22px; height: 22px; border-radius: 50%; border: 2px solid var(--c); display: grid; place-items: center; }
+.est-op[aria-checked="true"] .est-dot { background: var(--c); box-shadow: inset 0 0 0 4px #fff; }
+.est-t { flex: 1; display: flex; flex-direction: column; }
+.est-t b { font-size: 15px; }
+.est-t small { font-size: 12.5px; color: var(--muted); }
+.est-now { font-size: 11px; font-weight: 600; color: var(--muted); background: var(--surface-3); border-radius: 999px; padding: 2px 8px; }
+@media (max-width: 760px) {
+  .modal-bg:has(.est) { place-items: end center; padding: 0; }
+  .modal.est { border-radius: 18px 18px 0 0; max-width: none; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+  .est-op { padding: 16px; }
+  .modal.est .form-acts { flex-direction: column-reverse; align-items: stretch; gap: 10px; }
+  .modal.est .form-acts > div { justify-content: stretch; } .modal.est .form-acts > div .btn { flex: 1; }
+}
