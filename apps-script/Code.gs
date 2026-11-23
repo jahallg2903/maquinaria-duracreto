@@ -517,8 +517,9 @@ function estadoRapido(yo, d) {
   var nota = texto(d.nota, 500);
   var antes = eq.estado;
   cambiarEstado(yo, eq, nuevo, 'app');
-  if (nuevo === 'habilitado') { eq.causa_inactividad = null; eq.plazo_reparacion = null; }
+  if (nuevo === 'habilitado') { eq.causa_inactividad = null; eq.plazo_reparacion = null; eq.inversion_reparacion = null; }
   else if (nota) eq.causa_inactividad = nota;
+  if (nuevo !== 'habilitado' && d.inversion !== undefined) eq.inversion_reparacion = numero(d.inversion, 'costo de reparación');
   eq.updated_at = ahora(); eq.updated_by = yo.id;
   guardar('equipos', eq);
   var etq = { habilitado: 'Operativo', taller: 'En taller', inhabilitado: 'Inhabilitado' };
@@ -531,7 +532,7 @@ function estadoRapido(yo, d) {
     i.updated_at = ahora(); guardar('incidencias', i); tocadas++;
     evento(yo, i.id, 'estado', 'Estado: ' + ETQ_INC[ant] + ' → ' + ETQ_INC[i.estado] + ' (equipo marcado como ' + etq[nuevo] + ')' + (nota ? ' · ' + nota : ''));
   });
-  auditar(yo, 'estado', 'equipos', eq.clave, { antes: antes, despues: nuevo, nota: nota });
+  auditar(yo, 'estado', 'equipos', eq.clave, { antes: antes, despues: nuevo, nota: nota, inversion: eq.inversion_reparacion });
   return { equipo: limpio(eq), incidencias: tocadas };
 }
 
