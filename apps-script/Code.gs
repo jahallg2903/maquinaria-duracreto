@@ -99,6 +99,7 @@ function manejar(req) {
     case 'cargar': return cargar(yo);
     case 'guardarEquipo': return { equipo: guardarEquipo(yo, req.equipo || {}) };
     case 'observaciones': return observaciones(yo, req.id, req.texto);
+    case 'estadoRapido': return estadoRapido(yo, req || {});
     case 'crearIncidencia': return { incidencia: crearIncidencia(yo, req.inc || {}, req.adjuntos || []) };
     case 'actualizarIncidencia': return { incidencia: actualizarIncidencia(yo, Number(req.id), req.cambios || {}) };
     case 'comentar': return comentar(yo, Number(req.id), req.texto);
@@ -503,6 +504,35 @@ function actualizarIncidencia(yo, id, c) {
   auditar(yo, 'editar', 'incidencias', inc.codigo, { antes: ant, despues: limpio(inc) });
   var r = limpio(inc); r.adjuntos = (inc.adjuntos || []).map(function (a) { return { nombre: a.nombre, tipo: a.tipo, path: 'drive' }; });
   return r;
+}
+
+// Cambio rápido de estado desde la app (pensado para el taller): un toque y listo.
+// Operativo -> cierra como "Reparada" las fallas abiertas del equipo. En taller -> las pasa a "En reparación".
+function estadoRapido(yo, d) {
+  exigir(yo, 'editarEquipo');
+  var eq = buscar('equipos', 'id', d.id);
+  if (!eq) throw new Error('Equipo no encontrado.');
+  var nuevo = String(d.estado || '');
+  if (['habilitado', 'taller', 'inhabilitado'].indexOf(nuevo) < 0) throw new Error('Estado no válido.');
+  var nota = texto(d.nota, 500);
+  var antes = eq.estado;
+  cambiarEstado(yo, eq, nuevo, 'app');
+  if (nuevo === 'habilitado') { eq.causa_inactividad = null; eq.plazo_reparacion = null; }
+  else if (nota) eq.causa_inactividad = nota;
+  eq.updated_at = ahora(); eq.updated_by = yo.id;
+  guardar('equipos', eq);
+  var etq = { habilitado: 'Operativo', taller: 'En taller', inhabilitado: 'Inhabilitado' };
+  var tocadas = 0;
+  tabla('incidencias').rows.filter(function (i) { return i.equipo_id === eq.id && i.estado !== 'reparada' && i.estado !== 'cerrada'; }).forEach(function (i) {
+    var ant = i.estado;
+    if (nuevo === 'habilitado') { i.estado = 'reparada'; i.fecha_resolucion = i.fecha_resolucion || hoy(); }
+    else if (nuevo === 'taller' && i.estado !== 'en_reparacion') i.estado = 'en_reparacion';
+    if (i.estado === ant) return;
+    i.updated_at = ahora(); guardar('incidencias', i); tocadas++;
+    evento(yo, i.id, 'estado', 'Estado: ' + ETQ_INC[ant] + ' → ' + ETQ_INC[i.estado] + ' (equipo marcado como ' + etq[nuevo] + ')' + (nota ? ' · ' + nota : ''));
+  });
+  auditar(yo, 'estado', 'equipos', eq.clave, { antes: antes, despues: nuevo, nota: nota });
+  return { equipo: limpio(eq), incidencias: tocadas };
 }
 
 function incVisible(yo, id) {
