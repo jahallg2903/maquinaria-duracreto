@@ -96,7 +96,7 @@ class SheetsDB {
 // =====================================================================
 // Demo (solo en este navegador)
 // =====================================================================
-const CLAVE_DEMO = 'dc-maquinaria-demo-v2';
+const CLAVE_DEMO = 'dc-maquinaria-demo-v3';
 const ETQ_INC = { reportada: 'Reportada', pendiente_diagnostico: 'Pendiente de diagnóstico', pendiente_repuestos: 'Pendiente de repuestos', en_reparacion: 'En reparación', en_espera: 'En espera', reparada: 'Reparada', cerrada: 'Cerrada' };
 const L = n => n == null ? '—' : 'L ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -116,7 +116,8 @@ class DemoDB {
         { id: 'trituracion', nombre: 'Trituración', orden: 3 }, { id: 'bloques', nombre: 'Bloques', orden: 4 }],
       plantas: [],
       perfiles: [
-        u('u-admin', 'admin', 'Jefe de planta', 'admin', 'Administrador'),
+        u('u-maestro', 'dc.maestro', 'Administrador general', 'maestro', 'Administración del sistema'),
+        u('u-admin', 'admin', 'Jefe de planta', 'admin', 'Jefe de planta'),
         u('u-gerencia', 'gerencia', 'Gerencia general', 'gerencia', 'Gerente'),
         u('u-mant', 'mantenimiento', 'Jefe de mantenimiento', 'mantenimiento', 'Mantenimiento')],
       perfilPlantas: [], plantasDemo: {},
@@ -169,7 +170,7 @@ class DemoDB {
       equipos: eqs, incidencias: this.s.incidencias.filter(i => ids.has(i.equipo_id)).sort((a, b) => b.id - a.id),
       mantenimientos: this.s.mantenimientos.filter(m => ids.has(m.equipo_id)),
       estados: this.s.estados.filter(x => ids.has(x.equipo_id)),
-      importaciones: ['admin', 'gerencia'].includes(p.rol) ? [...this.s.importaciones].reverse() : []
+      importaciones: ['maestro', 'admin', 'gerencia'].includes(p.rol) ? [...this.s.importaciones].reverse() : []
     });
   }
 
@@ -192,7 +193,7 @@ class DemoDB {
   }
 
   async guardarEquipo(eq) {
-    this.exigir(['admin', 'mantenimiento']);
+    this.exigir(['maestro', 'admin', 'mantenimiento']);
     const ahora = new Date().toISOString();
     if (eq.id) {
       const cur = this.s.equipos.find(e => e.id === eq.id);
@@ -209,7 +210,7 @@ class DemoDB {
   }
   async actualizarObservaciones(id, texto) {
     const e = this.s.equipos.find(x => x.id === id);
-    if (!this.yo || !(['admin', 'mantenimiento'].includes(this.yo.rol) || (this.yo.rol === 'planta' && this.ve(this.yo, e.planta_id)))) throw new Error('No tiene permiso para esta acción.');
+    if (!this.yo || !(['maestro', 'admin', 'mantenimiento'].includes(this.yo.rol) || (this.yo.rol === 'planta' && this.ve(this.yo, e.planta_id)))) throw new Error('No tiene permiso para esta acción.');
     e.observaciones = texto; e.updated_at = new Date().toISOString(); this.guardar();
   }
 
@@ -236,7 +237,7 @@ class DemoDB {
     }
     if (!eq) throw new Error('Equipo no encontrado');
     const { nuevo_equipo, ...incLimpia } = inc; inc = { ...incLimpia, equipo_id: eq.id, costo_estimado: Number(inc.costo_estimado) };
-    if (!this.yo || !(['admin', 'mantenimiento'].includes(this.yo.rol) || (this.yo.rol === 'planta' && this.ve(this.yo, eq.planta_id)))) throw new Error('No tiene permiso para esta acción.');
+    if (!this.yo || !(['maestro', 'admin', 'mantenimiento'].includes(this.yo.rol) || (this.yo.rol === 'planta' && this.ve(this.yo, eq.planta_id)))) throw new Error('No tiene permiso para esta acción.');
     const id = ++this.s.seq.inc;
     const ahora = new Date().toISOString();
     const r = {
@@ -253,7 +254,7 @@ class DemoDB {
     this.guardar(); return r;
   }
   async actualizarIncidencia(id, c) {
-    this.exigir(['admin', 'mantenimiento']);
+    this.exigir(['maestro', 'admin', 'mantenimiento']);
     const r = this.s.incidencias.find(x => x.id === id);
     const ant = { ...r };
     Object.assign(r, c, { updated_at: new Date().toISOString() });
@@ -284,7 +285,7 @@ class DemoDB {
   async eventos(id) { return this.s.eventos.filter(e => e.incidencia_id === id).sort((a, b) => b.id - a.id); }
 
   async guardarMantenimiento(m) {
-    this.exigir(['admin', 'mantenimiento']);
+    this.exigir(['maestro', 'admin', 'mantenimiento']);
     const ahora = new Date().toISOString();
     if (m.id) { const cur = this.s.mantenimientos.find(x => x.id === m.id); Object.assign(cur, m, { updated_at: ahora }); this.guardar(); return cur; }
     const n = { ...m, id: ++this.s.seq.mant, created_at: ahora, updated_at: ahora, created_by: this.s.sesion };
@@ -292,7 +293,7 @@ class DemoDB {
   }
 
   async importar(equipos, archivo, detalle) {
-    this.exigir(['admin']);
+    this.exigir(['maestro', 'admin']);
     let nuevos = 0, actualizados = 0;
     const ahora = new Date().toISOString();
     for (const e of equipos) {
@@ -322,16 +323,16 @@ class DemoDB {
     this.guardar();
     return { nuevos, actualizados };
   }
-  async guardarPlanta(p) { this.exigir(['admin']); Object.assign(this.s.plantas.find(x => x.id === p.id), p); this.guardar(); }
+  async guardarPlanta(p) { this.exigir(['maestro']); Object.assign(this.s.plantas.find(x => x.id === p.id), p); this.guardar(); }
   async guardarPerfil(p, plantas) {
-    this.exigir(['admin']);
+    this.exigir(['maestro']);
     Object.assign(this.s.perfiles.find(x => x.id === p.id), { nombre: p.nombre, cargo: p.cargo, rol: p.rol, activo: p.activo });
     this.s.perfilPlantas = this.s.perfilPlantas.filter(x => x.perfil_id !== p.id).concat(plantas.map(planta_id => ({ perfil_id: p.id, planta_id })));
     if (this.s.plantasDemo) delete this.s.plantasDemo[p.id];
     this.guardar();
   }
   async crearUsuario(u) {
-    this.exigir(['admin']);
+    this.exigir(['maestro']);
     const username = String(u.username || '').trim().toLowerCase();
     if (!/^[a-z0-9._-]{3,30}$/.test(username)) throw new Error('Usuario inválido: use 3 a 30 letras, números, punto o guion');
     if (String(u.password || '').length < 8) throw new Error('La contraseña debe tener al menos 8 caracteres');
@@ -342,7 +343,7 @@ class DemoDB {
     this.guardar(); return { ok: true, id };
   }
   async cambiarPassword(id, password) {
-    this.exigir(['admin']);
+    this.exigir(['maestro']);
     if (String(password || '').length < 8) throw new Error('La contraseña debe tener al menos 8 caracteres');
     const p = this.s.perfiles.find(x => x.id === id); p.password = password; p.debe_cambiar = id !== this.s.sesion; this.guardar();
   }

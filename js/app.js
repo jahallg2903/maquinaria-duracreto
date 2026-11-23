@@ -30,14 +30,14 @@ const INC = {
 const ABIERTA = e => !['reparada', 'cerrada'].includes(e);
 const PRIO = { baja: ['Baja', '#A8A29E', 'No afecta la operación; se atiende en la próxima ventana.'], media: ['Media', '#F59E0B', 'Afecta el rendimiento; el equipo sigue operando.'], alta: ['Alta', '#EA580C', 'El equipo no puede operar con seguridad.'], critica: ['Crítica', '#DC2626', 'Detiene la producción de la planta.'] };
 const MANT = { programado: 'Programado', en_proceso: 'En proceso', ejecutado: 'Ejecutado', cancelado: 'Cancelado' };
-const ROLES = { admin: 'Jefe de planta', gerencia: 'Gerencia', mantenimiento: 'Mantenimiento' };
+const ROLES = { maestro: 'Administrador general', admin: 'Jefe de planta', gerencia: 'Gerencia', mantenimiento: 'Mantenimiento' };
 const PLAZO = { menor_semana: 'Menos de una semana', mayor_semana: 'Más de una semana' };
 
 const PERM = {
-  importar: ['admin'], editarEquipo: ['admin', 'mantenimiento'], reportar: ['admin', 'mantenimiento'],
-  gestionar: ['admin', 'mantenimiento'], comentar: ['admin', 'mantenimiento'], mantener: ['admin', 'mantenimiento'],
-  costos: ['admin', 'gerencia', 'mantenimiento'], usuarios: ['admin'], reportes: ['admin', 'gerencia', 'mantenimiento'],
-  observaciones: ['admin', 'mantenimiento'], exportar: ['admin', 'mantenimiento']
+  importar: ['maestro', 'admin'], editarEquipo: ['maestro', 'admin', 'mantenimiento'], reportar: ['maestro', 'admin', 'mantenimiento'],
+  gestionar: ['maestro', 'admin', 'mantenimiento'], comentar: ['maestro', 'admin', 'mantenimiento'], mantener: ['maestro', 'admin', 'mantenimiento'],
+  costos: ['maestro', 'admin', 'gerencia', 'mantenimiento'], usuarios: ['maestro'], reportes: ['maestro', 'admin', 'gerencia', 'mantenimiento'],
+  observaciones: ['maestro', 'admin', 'mantenimiento'], exportar: ['maestro', 'admin', 'mantenimiento']
 };
 const can = a => !!(S.yo && PERM[a].includes(S.yo.rol));
 
@@ -226,7 +226,7 @@ function pantallaLogin(aviso = '') {
       <label class="fld">Contraseña<input class="ctl" id="lp" type="password" autocomplete="current-password" required></label>
       <div class="err" id="le" ${aviso ? '' : 'hidden'}>${esc(aviso)}</div>
       <button class="btn primary" type="submit">Ingresar</button>
-      <p class="hint">¿Olvidó su contraseña? Pídale al jefe de planta que la restablezca.</p>
+      <p class="hint">¿Olvidó su contraseña? Pídale al Administrador general que la restablezca.</p>
       ${botonInstalar('btn inst-btn')}
     </form>
   </main>`;
@@ -905,7 +905,7 @@ function vIncidencia(id) {
   const e = S.idx.eq.get(i.equipo_id);
   const ab = ABIERTA(i.estado);
   const d = ab ? dias(i.fecha_reporte) : dias(i.fecha_reporte, i.fecha_resolucion);
-  const tecnicos = S.D.perfiles.filter(p => p.activo && ['mantenimiento', 'admin'].includes(p.rol));
+  const tecnicos = S.D.perfiles.filter(p => p.activo && ['mantenimiento', 'admin', 'maestro'].includes(p.rol));
   const html = `
   <div><a class="back" href="#/seguimiento">${ico('atras', 'width="16" height="16"')}Seguimiento</a>
   <div class="ph"><div><h1>${i.codigo} · ${esc(eqNom(e))}</h1>
