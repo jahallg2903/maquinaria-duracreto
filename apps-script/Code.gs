@@ -41,7 +41,7 @@ var TABLAS = {
   plantas: ['id', 'nombre', 'negocio_id'],
   equipos: ['id', 'clave', 'codigo', 'codigo_sap', 'descripcion', 'tipo', 'negocio_id', 'planta_id', 'ubicacion_excel', 'marca', 'modelo', 'anio',
     'estado', 'condicion_pct', 'consumo_combustible', 'plazo_reparacion', 'causa_inactividad', 'fecha_inhabilitado', 'inversion_reparacion',
-    'observaciones', 'origen', 'hoja_origen', 'fila_origen', 'activo', 'created_at', 'updated_at', 'updated_by'],
+    'observaciones', 'origen', 'hoja_origen', 'fila_origen', 'activo', 'created_at', 'updated_at', 'updated_by', 'serie'],
   incidencias: ['id', 'codigo', 'equipo_id', 'fecha_reporte', 'descripcion', 'causa', 'prioridad', 'estado', 'fuera_servicio', 'reportado_por',
     'responsable_id', 'costo_estimado', 'costo_real', 'fecha_estimada', 'fecha_resolucion', 'observaciones', 'adjuntos', 'created_at', 'updated_at'],
   eventos: ['id', 'incidencia_id', 'fecha', 'usuario_id', 'tipo', 'detalle'],
@@ -325,6 +325,23 @@ function texto(v, max) { if (v === null || v === undefined) return null; var s =
 function fechaValida(v) { if (!v) return null; var s = String(v).slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new Error('Fecha inválida: ' + v); return s; }
 function numero(v, nombre) { if (v === null || v === undefined || v === '') return null; var n = Number(v); if (isNaN(n) || n < 0) throw new Error('El ' + nombre + ' debe ser un número positivo.'); return n; }
 
+
+// Busca un equipo existente por código interno, SAP o número de serie (para no duplicar)
+function equipoPorCodigos(codigo, sap, serie) {
+  var C = function (v) { return v ? String(v).toUpperCase().replace(/\s+/g, '') : null; };
+  var c = C(codigo), s = C(sap), se = C(serie);
+  if (!c && !s && !se) return null;
+  return tabla('equipos').rows.filter(function (e) {
+    return (c && (C(e.clave) === c || C(e.codigo) === c || C(e.codigo_sap) === c)) ||
+      (s && (C(e.clave) === s || C(e.codigo) === s || C(e.codigo_sap) === s)) ||
+      (se && (C(e.serie) === se || C(e.clave) === se));
+  })[0] || null;
+}
+function siguienteClaveNueva() {
+  var max = 0;
+  tabla('equipos').rows.forEach(function (e) { var m = /^NUEVO-(\d+)$/.exec(e.clave || ''); if (m) max = Math.max(max, Number(m[1])); });
+  return 'NUEVO-' + ('00' + (max + 1)).slice(-3);
+}
 function guardarEquipo(yo, d) {
   exigir(yo, 'editarEquipo');
   if (!texto(d.descripcion)) throw new Error('Escriba la descripción del equipo.');
@@ -335,8 +352,13 @@ function guardarEquipo(yo, d) {
   if (anio !== null && (!(anio >= 1950 && anio <= 2100) || Math.round(anio) !== anio)) throw new Error('El año debe estar entre 1950 y 2100.');
   var campos = {
     descripcion: texto(d.descripcion, 300), tipo: texto(d.tipo, 80), negocio_id: d.negocio_id || null, planta_id: d.planta_id ? Number(d.planta_id) : null,
-    marca: texto(d.marca, 80), modelo: texto(d.modelo, 80), anio: anio, causa_inactividad: texto(d.causa_inactividad, 500), observaciones: texto(d.observaciones, 2000)
+    marca: texto(d.marca, 80), modelo: texto(d.modelo, 80), anio: anio, causa_inactividad: texto(d.causa_inactividad, 500), observaciones: texto(d.observaciones, 2000),
+    serie: d.serie ? String(texto(d.serie, 80)).toUpperCase() : null
   };
+  if (campos.serie) {
+    var otroSerie = buscar('equipos', 'serie', campos.serie);
+    if (otroSerie && otroSerie.id !== d.id) throw new Error('Ya existe un equipo con la serie ' + campos.serie + ' (' + otroSerie.clave + ').');
+  }
   var t = ahora();
   if (d.id) {
     var eq = buscar('equipos', 'id', d.id);
@@ -352,8 +374,8 @@ function guardarEquipo(yo, d) {
     return limpio(eq);
   }
   var codigo = texto(d.codigo, 40), sap = texto(d.codigo_sap, 40);
-  if (!codigo && !sap) throw new Error('Indique al menos el código interno o el código SAP.');
-  var clave = String(codigo || sap).toUpperCase();
+  if (!codigo && !sap && !campos.serie && !d.permitirSinCodigo) throw new Error('Indique el código interno, el código SAP o el número de serie.');
+  var clave = codigo || sap || campos.serie ? String(codigo || sap || campos.serie).toUpperCase() : siguienteClaveNueva();
   if (buscar('equipos', 'clave', clave)) throw new Error('Ya existe un equipo con el código ' + clave + '.');
   var nuevo = { clave: clave, codigo: codigo ? codigo.toUpperCase() : null, codigo_sap: sap ? sap.toUpperCase() : null, estado: d.estado || 'habilitado', origen: 'manual', activo: true, created_at: t, updated_at: t, updated_by: yo.id };
   for (var c in campos) nuevo[c] = campos[c];
@@ -392,7 +414,16 @@ function carpetaAdjuntos() {
 
 function crearIncidencia(yo, d, adjuntos) {
   exigir(yo, 'reportar');
-  var eq = buscar('equipos', 'id', d.equipo_id);
+  var desc0 = texto(d.descripcion, 2000);
+  if (!desc0 || desc0.length < 5) throw new Error('Describa la falla (al menos unas palabras).');
+  var costoEst = d.costo_estimado === null || d.costo_estimado === undefined || d.costo_estimado === '' ? null : Number(d.costo_estimado);
+  if (costoEst === null || isNaN(costoEst) || costoEst < 0) throw new Error('Escriba el costo aproximado de la reparación.');
+  var eq = d.equipo_id ? buscar('equipos', 'id', d.equipo_id) : null;
+  if (!eq && d.nuevo_equipo) {
+    var ne = d.nuevo_equipo;
+    var ya = equipoPorCodigos(texto(ne.codigo, 40), null, texto(ne.serie, 80));
+    eq = ya || buscar('equipos', 'id', guardarEquipo(yo, { descripcion: ne.descripcion, negocio_id: ne.negocio_id, planta_id: ne.planta_id, codigo: ne.codigo, serie: ne.serie, marca: ne.marca, modelo: ne.modelo, estado: 'habilitado', permitirSinCodigo: true }).id);
+  }
   if (!eq) throw new Error('Equipo no encontrado.');
   if (!vePlanta(yo, eq.planta_id)) throw new Error('Sin permiso para este equipo.');
   var desc = texto(d.descripcion, 2000);
@@ -415,7 +446,7 @@ function crearIncidencia(yo, d, adjuntos) {
   var t = ahora();
   var inc = {
     equipo_id: eq.id, fecha_reporte: f, descripcion: desc, causa: texto(d.causa, 500), prioridad: prioridad, estado: 'reportada',
-    fuera_servicio: !!d.fuera_servicio, reportado_por: yo.id, responsable_id: null, costo_estimado: null, costo_real: null,
+    fuera_servicio: !!d.fuera_servicio, reportado_por: yo.id, responsable_id: null, costo_estimado: costoEst, costo_real: null,
     fecha_estimada: null, fecha_resolucion: null, observaciones: null, adjuntos: guardados, created_at: t, updated_at: t
   };
   inc.id = siguienteId('incidencias');
@@ -569,8 +600,11 @@ function importar(yo, equipos, archivo, detalle) {
       plazo_reparacion: e.plazo_reparacion || null, causa_inactividad: e.causa_inactividad || null, inversion_reparacion: e.inversion_reparacion,
       hoja_origen: e.hoja_origen || null, fila_origen: e.fila_origen || null
     };
-    var cur = porClave[e.clave];
+    var cur = porClave[e.clave] || equipoPorCodigos(e.codigo, e.codigo_sap, e.serie);
+    if (cur && nuevos.indexOf(cur) >= 0) cur = null;
+    if (cur && actualizados.indexOf(cur) >= 0) return;
     if (cur) {
+      if (e.serie && !cur.serie) cur.serie = e.serie;
       for (var k in campos) cur[k] = campos[k];
       cur.negocio_id = cur.negocio_id || e.negocio || null;
       cur.planta_id = pid || cur.planta_id; cur.activo = true; cur.updated_at = t; cur.updated_by = yo.id;
@@ -583,7 +617,7 @@ function importar(yo, equipos, archivo, detalle) {
       actualizados.push(cur);
     } else {
       var n = { id: Utilities.getUuid(), clave: e.clave, negocio_id: e.negocio || null, planta_id: pid, estado: estado, fecha_inhabilitado: e.fecha_inhabilitado || null,
-        marca: null, modelo: null, anio: null, observaciones: null, origen: 'excel', activo: true, created_at: t, updated_at: t, updated_by: yo.id };
+        marca: null, modelo: null, anio: null, observaciones: null, origen: 'excel', activo: true, created_at: t, updated_at: t, updated_by: yo.id, serie: e.serie || null };
       for (var c in campos) n[c] = campos[c];
       porClave[n.clave] = n;
       nuevos.push(n);
@@ -649,7 +683,7 @@ function crearUsuario(yo, d) {
   validarPassword(String(d.password || ''), username);
   var salt = Utilities.getUuid();
   var u = { username: username, nombre: texto(d.nombre, 120) || '', cargo: texto(d.cargo, 120) || '', rol: d.rol,
-    plantas: d.rol === 'planta' ? (d.plantas || []).map(Number) : [], activo: true, debe_cambiar: true, salt: salt, hash: cifrar(String(d.password), salt), creado: ahora(), ultimo_acceso: null };
+    plantas: d.rol === 'planta' ? (d.plantas || []).map(Number) : [], activo: true, debe_cambiar: false, salt: salt, hash: cifrar(String(d.password), salt), creado: ahora(), ultimo_acceso: null };
   insertar('usuarios', u);
   auditar(yo, 'crear', 'usuarios', username, publico(u));
   return { id: u.id };
@@ -659,7 +693,7 @@ function resetPassword(yo, id, pw) {
   var u = buscar('usuarios', 'id', id);
   if (!u) throw new Error('Usuario no encontrado.');
   validarPassword(pw, u.username);
-  u.salt = Utilities.getUuid(); u.hash = cifrar(pw, u.salt); u.debe_cambiar = u.id !== yo.id;
+  u.salt = Utilities.getUuid(); u.hash = cifrar(pw, u.salt); u.debe_cambiar = false;
   guardar('usuarios', u);
   cerrarSesionesDe(u.id);
   CacheService.getScriptCache().remove('fail_' + u.username);
@@ -839,6 +873,7 @@ function columnas(rows, h) {
     else if (n === 'CODIGO') { if (codigos === 0) map.codigo = c; else { if (map.sap == null) map.sap = c; } codigos++; }
     else if (n.startsWith('DESCRIPCION')) { if (descs === 0) map.desc = c; else { if (map.estatus == null) map.estatus = c; } descs++; }
     else if (n.startsWith('ESTATUS')) { if (map.estatus == null) map.estatus = c; }
+    else if (n.includes('SERIE') || n === 'VIN' || n.includes('CHASIS')) { if (map.serie == null) map.serie = c; }
     else if (n === 'VERDE') map.verde = c;
     else if (n === 'ROJO') map.rojo = c;
     else if (n.includes('% ESTADO')) map.condicion = c;
@@ -959,6 +994,7 @@ function analizarLibro(hojas, opciones = {}) {
       clave: c.clave,
       codigo: c.codigo,
       codigo_sap: c.sap,
+      serie: (limpio(c.get('serie')) || '').toUpperCase() || null,
       descripcion: c.desc,
       tipo: familia(c.desc),
       negocio,
