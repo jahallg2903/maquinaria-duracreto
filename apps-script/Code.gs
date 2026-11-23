@@ -23,12 +23,12 @@ var NEGOCIOS = [
   { id: 'trituracion', nombre: 'Trituración', orden: 3 },
   { id: 'bloques', nombre: 'Bloques', orden: 4 }
 ];
-// Roles: admin = Jefe de planta (control total), gerencia = consulta ejecutiva, mantenimiento = operación de reparaciones
-var ROLES = ['admin', 'gerencia', 'mantenimiento'];
+// Roles: maestro = Administrador general (todo, único que maneja usuarios), admin = Jefe de planta, gerencia = consulta ejecutiva, mantenimiento = operación de reparaciones
+var ROLES = ['maestro', 'admin', 'gerencia', 'mantenimiento'];
 var PERM = {
-  importar: ['admin'], editarEquipo: ['admin', 'mantenimiento'], reportar: ['admin', 'mantenimiento'],
-  gestionar: ['admin', 'mantenimiento'], comentar: ['admin', 'mantenimiento'], mantener: ['admin', 'mantenimiento'],
-  costos: ['admin', 'gerencia', 'mantenimiento'], usuarios: ['admin'], observaciones: ['admin', 'mantenimiento']
+  importar: ['maestro', 'admin'], editarEquipo: ['maestro', 'admin', 'mantenimiento'], reportar: ['maestro', 'admin', 'mantenimiento'],
+  gestionar: ['maestro', 'admin', 'mantenimiento'], comentar: ['maestro', 'admin', 'mantenimiento'], mantener: ['maestro', 'admin', 'mantenimiento'],
+  costos: ['maestro', 'admin', 'gerencia', 'mantenimiento'], usuarios: ['maestro'], observaciones: ['maestro', 'admin', 'mantenimiento']
 };
 var ESTADOS_EQ = ['habilitado', 'inhabilitado', 'taller', 'sin_info'];
 var ESTADOS_INC = ['reportada', 'pendiente_diagnostico', 'pendiente_repuestos', 'en_reparacion', 'en_espera', 'reparada', 'cerrada'];
@@ -304,7 +304,7 @@ function cargar(yo) {
     }).sort(function (a, b) { return b.id - a.id; }),
     mantenimientos: tabla('mantenimientos').rows.filter(function (m) { return ids[m.equipo_id]; }).map(sinCostos),
     estados: tabla('estados').rows.filter(function (s) { return ids[s.equipo_id] && s.fecha >= desdeEst; }).map(limpio),
-    importaciones: (yo.rol === 'admin' || yo.rol === 'gerencia') ? tabla('importaciones').rows.map(limpio).reverse().slice(0, 20) : []
+    importaciones: (yo.rol === 'maestro' || yo.rol === 'admin' || yo.rol === 'gerencia') ? tabla('importaciones').rows.map(limpio).reverse().slice(0, 20) : []
   };
 }
 
@@ -661,9 +661,9 @@ function guardarPerfil(yo, d, plantas) {
   if (!u) throw new Error('Usuario no encontrado.');
   if (ROLES.indexOf(d.rol) < 0) throw new Error('Rol no válido.');
   var esYo = u.id === yo.id;
-  if (!esYo && u.rol === 'admin' && (d.rol !== 'admin' || d.activo === false)) {
-    var admins = tabla('usuarios').rows.filter(function (x) { return x.rol === 'admin' && x.activo; });
-    if (admins.length <= 1) throw new Error('Debe quedar al menos un administrador activo.');
+  if (!esYo && u.rol === 'maestro' && (d.rol !== 'maestro' || d.activo === false)) {
+    var maestros = tabla('usuarios').rows.filter(function (x) { return x.rol === 'maestro' && x.activo; });
+    if (maestros.length <= 1) throw new Error('Debe quedar al menos un Administrador general activo.');
   }
   var antes = publico(u);
   u.nombre = texto(d.nombre, 120) || ''; u.cargo = texto(d.cargo, 120) || '';
@@ -726,6 +726,8 @@ function instalar() {
   } else {
     Logger.log('Las pestañas están listas. El usuario admin ya existía.');
   }
+  CACHE_T = {};
+  if (!buscar('usuarios', 'rol', 'maestro')) crearMaestro();
   // Carga inicial: si todavía no hay equipos, se importa el inventario de la propia hoja
   CACHE_T = {};
   if (!tabla('equipos').rows.length) {
@@ -737,10 +739,25 @@ function instalar() {
 // Lee las pestañas de inventario de esta misma hoja y las importa (también disponible desde la app)
 function cargarInventarioDeLaHoja() {
   CACHE_T = {};
-  var admin = buscar('usuarios', 'rol', 'admin');
+  var admin = buscar('usuarios', 'rol', 'maestro') || buscar('usuarios', 'rol', 'admin');
   var res = Importador.analizarLibro(leerInventario(), { hoy: hoy() });
   return importar(admin, res.equipos, 'Hoja de Google (carga automática)', { rechazados: res.rechazados.length, duplicados: res.duplicados.length, avisos: res.avisos.length, hojas: res.hojas });
 }
+
+// Administrador general (usuario maestro): el único que crea y administra usuarios.
+var USUARIO_MAESTRO = 'dc.maestro';
+function crearMaestro() {
+  CACHE_T = {};
+  var temporal = 'Dm' + Math.random().toString(36).slice(2, 8) + Math.floor(10 + Math.random() * 89);
+  var salt = Utilities.getUuid();
+  var u = buscar('usuarios', 'username', USUARIO_MAESTRO);
+  if (u) { u.salt = salt; u.hash = cifrar(temporal, salt); u.rol = 'maestro'; u.activo = true; u.debe_cambiar = true; guardar('usuarios', u); cerrarSesionesDe(u.id); }
+  else insertar('usuarios', { username: USUARIO_MAESTRO, nombre: 'Administrador general', cargo: 'Administración del sistema', rol: 'maestro', plantas: [], activo: true, debe_cambiar: true, salt: salt, hash: cifrar(temporal, salt), creado: ahora(), ultimo_acceso: null });
+  PropertiesService.getScriptProperties().setProperty('MAESTRO_TEMPORAL', temporal);
+  Logger.log('Administrador general -> Usuario: ' + USUARIO_MAESTRO + '   Contraseña temporal: ' + temporal + '   (se pedirá cambiarla al entrar)');
+}
+// Emergencia: si se pierde la contraseña del Administrador general, ejecutar desde el editor.
+function restablecerMaestro() { crearMaestro(); }
 
 // Emergencia: si se pierde la contraseña del admin, ejecutar desde el editor.
 function restablecerAdmin() {
@@ -748,7 +765,7 @@ function restablecerAdmin() {
   var u = buscar('usuarios', 'username', 'admin');
   if (!u) return instalar();
   var temporal = 'Dc' + Math.random().toString(36).slice(2, 8) + Math.floor(10 + Math.random() * 89);
-  u.salt = Utilities.getUuid(); u.hash = cifrar(temporal, u.salt); u.debe_cambiar = true; u.activo = true; u.rol = 'admin';
+  u.salt = Utilities.getUuid(); u.hash = cifrar(temporal, u.salt); u.debe_cambiar = true; u.activo = true;
   guardar('usuarios', u);
   cerrarSesionesDe(u.id);
   Logger.log('Usuario: admin   Contraseña temporal: ' + temporal);
