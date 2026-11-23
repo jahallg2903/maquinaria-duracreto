@@ -86,6 +86,9 @@ const eqNom = e => e ? nombreBonito(e.descripcion) : '—';
 const eqCod = e => e ? (e.codigo || e.codigo_sap || e.clave) : '';
 
 const pill = e => `<span class="pill ${esc(e)}">${ESTADOS[e] || e}</span>`;
+const pillEq = e => can('editarEquipo')
+  ? `<span class="pill ${esc(e.estado)} pill-btn" role="button" tabindex="0" data-estado-eq="${esc(e.id)}" title="Cambiar estado">${ESTADOS[e.estado] || e.estado}<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>`
+  : pill(e.estado);
 const tsPill = e => `<span class="ts ${esc(e)}"><i style="background:${INC[e][1]}"></i>${INC[e][0]}</span>`;
 const prio = p => `<span class="prio"><span class="dot" style="background:${PRIO[p][1]}"></span>${PRIO[p][0]}</span>`;
 
@@ -478,7 +481,7 @@ function vPanel() {
     ${atencion.length ? `<div class="att">${atencion.slice(0, 6).map(e => { const d = dias(e.fecha_inhabilitado); return `<a class="att-it" href="#/equipo/${e.id}">
       <div class="att-n"><b>${esc(eqNom(e))}</b><small>${esc(eqCod(e))} · ${esc(plantaNom(e.planta_id))}</small></div>
       <div class="att-c hm" title="${esc(e.causa_inactividad || '')}">${esc(e.causa_inactividad ? nombreBonito(e.causa_inactividad).slice(0, 70) : 'Sin causa registrada')}</div>
-      ${pill(e.estado)}
+      ${pillEq(e)}
       <div class="att-d tnum ${d > ALERTA_DIAS ? 'late' : d > AVISO_DIAS ? 'late-soft' : ''}">${d == null ? '<span class="chip">Sin fecha</span>' : `<b>${d}</b> días`}</div></a>`; }).join('')}</div>` : '<p class="cap">No hay equipos fuera de servicio.</p>'}
   </section>
   <p class="foot-note">${ult ? `Inventario actualizado el ${fecha(ult.fecha)}` : ''}</p>`;
@@ -487,6 +490,64 @@ function vPanel() {
     bind: m => { $('#pNeg', m).onchange = e => { f.negocio = e.target.value; render(); }; }
   };
 }
+
+// ---------------------------------------------------------------- Cambio rápido de estado (taller)
+const OPC_ESTADO = [
+  ['habilitado', 'Operativo', 'Funciona y está trabajando', 'var(--ok)'],
+  ['taller', 'En taller', 'En mantenimiento o reparación', 'var(--warn)'],
+  ['inhabilitado', 'Inhabilitado', 'Parado, no se puede usar', 'var(--bad)']
+];
+function cambiarEstadoRapido(id) {
+  const e = S.idx.eq.get(id);
+  if (!e || !can('editarEquipo')) return;
+  const abiertas = S.D.incidencias.filter(i => i.equipo_id === id && ABIERTA(i.estado));
+  let sel = e.estado === 'sin_info' ? '' : e.estado;
+  modal(`
+    <div class="est-h"><h2>Cambiar estado</h2><p class="cap">${esc(eqNom(e))} · ${esc(eqCod(e))}</p></div>
+    <div class="est-ops" role="radiogroup" aria-label="Nuevo estado">
+      ${OPC_ESTADO.map(([k, t, d, c]) => `<button type="button" class="est-op" role="radio" aria-checked="${k === sel}" data-k="${k}" style="--c:${c}">
+        <span class="est-dot"></span><span class="est-t"><b>${t}</b><small>${d}</small></span>${k === e.estado ? '<span class="est-now">Actual</span>' : ''}</button>`).join('')}
+    </div>
+    <div id="estAviso" class="note" hidden></div>
+    <label class="fld" id="estNotaF">Comentario (opcional)<textarea class="ctl" id="estNota" rows="2" placeholder="ej. Se cambió la bomba hidráulica"></textarea></label>
+    <div class="err" id="estErr" hidden></div>
+    <div class="form-acts" style="justify-content:space-between">
+      ${can('reportar') ? `<a class="btn ghost" href="#/falla?equipo=${e.id}" data-cerrar>+ Reportar falla nueva</a>` : '<span></span>'}
+      <div style="display:flex;gap:8px"><button class="btn" data-cerrar>Cancelar</button><button class="btn primary" id="estOk" disabled>Guardar</button></div>
+    </div>`, (bg, cerrar) => {
+    bg.querySelector('.modal').classList.add('est');
+    const pintar = () => {
+      $$('.est-op', bg).forEach(b => b.setAttribute('aria-checked', String(b.dataset.k === sel)));
+      $('#estOk', bg).disabled = !sel || sel === e.estado;
+      const av = $('#estAviso', bg);
+      const txt = sel === 'habilitado' && abiertas.length ? `Tiene ${abiertas.length} falla${abiertas.length > 1 ? 's' : ''} abierta${abiertas.length > 1 ? 's' : ''} (${abiertas.map(i => i.codigo).join(', ')}): se marcará${abiertas.length > 1 ? 'n' : ''} como reparada${abiertas.length > 1 ? 's' : ''}.`
+        : sel === 'taller' && abiertas.length ? `Las fallas abiertas de este equipo pasarán a «En reparación».`
+        : sel === 'inhabilitado' && !abiertas.length && can('reportar') ? 'Consejo: si sabe qué falló, use «Reportar falla nueva» para registrar el costo y darle seguimiento.' : '';
+      av.textContent = txt; av.hidden = !txt;
+      $('#estNota', bg).placeholder = sel === 'habilitado' ? 'ej. Se cambió la bomba hidráulica' : 'ej. Falla en el sistema eléctrico';
+    };
+    $$('.est-op', bg).forEach(b => b.onclick = () => { sel = b.dataset.k; pintar(); });
+    $('#estOk', bg).onclick = async ev => {
+      await accion(ev.currentTarget, async () => {
+        const r = await S.db.estadoRapido(id, sel, $('#estNota', bg).value.trim() || null);
+        cerrar();
+        await recargar(); render();
+        toast(`${eqNom(e)}: ${ESTADOS[sel]}${r && r.incidencias ? ` · ${r.incidencias} falla${r.incidencias > 1 ? 's' : ''} actualizada${r.incidencias > 1 ? 's' : ''}` : ''}`);
+      });
+    };
+    pintar();
+  });
+}
+document.addEventListener('click', ev => {
+  const t = ev.target.closest('[data-estado-eq]');
+  if (!t) return;
+  ev.preventDefault(); ev.stopPropagation();
+  cambiarEstadoRapido(t.dataset.estadoEq);
+}, true);
+document.addEventListener('keydown', ev => {
+  const t = ev.target.closest && ev.target.closest('span[data-estado-eq]');
+  if (t && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); cambiarEstadoRapido(t.dataset.estadoEq); }
+});
 
 function filasClicables(m) {
   $$('tr.click', m).forEach(tr => tr.addEventListener('click', e => { if (!e.target.closest('a,button,input,select')) location.hash = tr.dataset.href; }));
@@ -543,7 +604,7 @@ function vInventario(_, params) {
       <td><a class="lk" href="#/equipo/${e.id}">${esc(eqNom(e))}</a><span class="sub">${esc(eqCod(e))}<span class="sm-only"> · ${esc(plantaNom(e.planta_id))}</span></span></td>
       <td class="nw hm">${esc(negNom(e.negocio_id))}</td><td class="nw hm">${esc(plantaNom(e.planta_id))}</td>
       <td class="hm">${e.marca || e.modelo ? esc([e.marca, e.modelo, e.anio].filter(Boolean).join(' · ')) : '<span class="cap">—</span>'}</td>
-      <td>${pill(e.estado)}</td><td class="clip hm" title="${esc(e.observaciones || e.causa_inactividad || '')}" style="color:var(--muted)">${esc(e.observaciones || (e.causa_inactividad ? nombreBonito(e.causa_inactividad) : '') || '—')}</td></tr>`).join('')
+      <td>${pillEq(e)}</td><td class="clip hm" title="${esc(e.observaciones || e.causa_inactividad || '')}" style="color:var(--muted)">${esc(e.observaciones || (e.causa_inactividad ? nombreBonito(e.causa_inactividad) : '') || '—')}</td></tr>`).join('')
       : '<tr><td colspan="6"><div class="empty"><b>Sin resultados</b>Pruebe con otros filtros.</div></td></tr>';
     $('#invFoot', m).innerHTML = l.length ? `<span>${(f.pag - 1) * POR_PAG + 1}–${Math.min(f.pag * POR_PAG, l.length)} de ${l.length}</span>
       <div class="pager"><button class="btn sm" id="pgA" ${f.pag <= 1 ? 'disabled' : ''}>Anterior</button><span class="cap">Página ${f.pag} de ${paginas}</span><button class="btn sm" id="pgS" ${f.pag >= paginas ? 'disabled' : ''}>Siguiente</button></div>` : '';
@@ -652,9 +713,10 @@ function vEquipo(id) {
   <div><a class="back" href="#/inventario">${ico('atras', 'width="16" height="16"')}Inventario</a>
   <div class="ph"><div>
     <h1>${esc(eqNom(e))}</h1>
-    <p style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span>${esc(eqCod(e))}${e.codigo_sap && e.codigo ? ' · ' + esc(e.codigo_sap) : ''}</span>${pill(e.estado)}${d != null && e.estado !== 'habilitado' ? `<span class="${d > ALERTA_DIAS ? 'late' : ''}">${d} días fuera de servicio</span>` : ''}</p></div>
+    <p style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span>${esc(eqCod(e))}${e.codigo_sap && e.codigo ? ' · ' + esc(e.codigo_sap) : ''}</span>${pillEq(e)}${d != null && e.estado !== 'habilitado' ? `<span class="${d > ALERTA_DIAS ? 'late' : ''}">${d} días fuera de servicio</span>` : ''}</p></div>
     <div class="acts">
-      ${can('reportar') ? `<a class="btn primary" href="#/falla?equipo=${e.id}">Reportar falla</a>` : ''}
+      ${can('editarEquipo') ? `<button class="btn primary" data-estado-eq="${e.id}">Cambiar estado</button>` : ''}
+      ${can('reportar') ? `<a class="btn${can('editarEquipo') ? '' : ' primary'}" href="#/falla?equipo=${e.id}">Reportar falla</a>` : ''}
       ${can('mantener') ? '<button class="btn" id="eqMant">Programar mantenimiento</button>' : ''}
       ${can('editarEquipo') ? '<button class="btn" id="eqEdit">Editar</button>' : ''}
     </div></div></div>
