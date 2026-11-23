@@ -666,6 +666,15 @@ function guardarPerfil(yo, d, plantas) {
     if (maestros.length <= 1) throw new Error('Debe quedar al menos un Administrador general activo.');
   }
   var antes = publico(u);
+  if (d.username !== undefined && d.username !== null) {
+    var nuevoUser = String(d.username).trim().toLowerCase();
+    if (nuevoUser !== u.username) {
+      if (!/^[a-z0-9._-]{3,30}$/.test(nuevoUser)) throw new Error('Usuario inválido: use de 3 a 30 letras minúsculas, números, punto o guion.');
+      if (buscar('usuarios', 'username', nuevoUser)) throw new Error('Ya existe el usuario ' + nuevoUser + '.');
+      CacheService.getScriptCache().remove('fail_' + u.username);
+      u.username = nuevoUser;
+    }
+  }
   u.nombre = texto(d.nombre, 120) || ''; u.cargo = texto(d.cargo, 120) || '';
   if (!esYo) { u.rol = d.rol; u.activo = d.activo !== false; }
   u.plantas = u.rol === 'planta' ? plantas.map(Number).filter(function (p) { return buscar('plantas', 'id', p); }) : [];
@@ -750,11 +759,11 @@ function crearMaestro() {
   CACHE_T = {};
   var temporal = 'Dm' + Math.random().toString(36).slice(2, 8) + Math.floor(10 + Math.random() * 89);
   var salt = Utilities.getUuid();
-  var u = buscar('usuarios', 'username', USUARIO_MAESTRO);
+  var u = buscar('usuarios', 'rol', 'maestro') || buscar('usuarios', 'username', USUARIO_MAESTRO);
   if (u) { u.salt = salt; u.hash = cifrar(temporal, salt); u.rol = 'maestro'; u.activo = true; u.debe_cambiar = true; guardar('usuarios', u); cerrarSesionesDe(u.id); }
   else insertar('usuarios', { username: USUARIO_MAESTRO, nombre: 'Administrador general', cargo: 'Administración del sistema', rol: 'maestro', plantas: [], activo: true, debe_cambiar: true, salt: salt, hash: cifrar(temporal, salt), creado: ahora(), ultimo_acceso: null });
   PropertiesService.getScriptProperties().setProperty('MAESTRO_TEMPORAL', temporal);
-  Logger.log('Administrador general -> Usuario: ' + USUARIO_MAESTRO + '   Contraseña temporal: ' + temporal + '   (se pedirá cambiarla al entrar)');
+  Logger.log('Administrador general -> Usuario: ' + (u ? u.username : USUARIO_MAESTRO) + '   Contraseña temporal: ' + temporal + '   (se pedirá cambiarla al entrar)');
 }
 // Emergencia: si se pierde la contraseña del Administrador general, ejecutar desde el editor.
 function restablecerMaestro() { crearMaestro(); }
@@ -762,7 +771,7 @@ function restablecerMaestro() { crearMaestro(); }
 // Emergencia: si se pierde la contraseña del admin, ejecutar desde el editor.
 function restablecerAdmin() {
   CACHE_T = {};
-  var u = buscar('usuarios', 'username', 'admin');
+  var u = buscar('usuarios', 'username', 'admin') || buscar('usuarios', 'rol', 'admin');
   if (!u) return instalar();
   var temporal = 'Dc' + Math.random().toString(36).slice(2, 8) + Math.floor(10 + Math.random() * 89);
   u.salt = Utilities.getUuid(); u.hash = cifrar(temporal, u.salt); u.debe_cambiar = true; u.activo = true;
