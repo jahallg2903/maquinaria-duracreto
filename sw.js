@@ -1,6 +1,6 @@
 // Service worker: permite instalar la app en el teléfono y abrirla rápido.
 // Nunca guarda datos de la base: las consultas al servidor siempre van a internet.
-const CACHE = 'dc-maquinaria-v8';
+const CACHE = 'dc-maquinaria-v9';
 const APP = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/data.js', 'js/importer.js', 'js/config.js', 'manifest.webmanifest',
   'assets/logo_color.png', 'assets/logo_negativo.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png'];
 
