@@ -372,3 +372,14 @@ a.alert:hover b { color: #B5650A; }
   .modal.est .form-acts { flex-direction: column-reverse; align-items: stretch; gap: 10px; }
   .modal.est .form-acts > div { justify-content: stretch; } .modal.est .form-acts > div .btn { flex: 1; }
 }
+
+/* ---------- Costos y negocio clickable ---------- */
+a.brow-link { text-decoration: none; color: inherit; border-radius: 10px; margin: 0 -8px; padding: 6px 8px; transition: background .15s; }
+a.brow-link:hover { background: var(--surface-2); color: inherit; }
+a.brow-link .chev { margin-left: 4px; }
+.bars .brow { grid-template-columns: minmax(0, 200px) minmax(0, 1fr) 48px auto; }
+.att-s { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.cost-v { font-size: 12px; color: var(--fg-2); font-weight: 600; }
+.chip.cost-add { cursor: pointer; background: #FFF4DE; border-color: #F3D9A6; color: #8A5A00; font-weight: 600; }
+.chip.cost-add:hover { background: #FDE9C2; }
+@media (max-width: 760px) { .att-it .att-s { grid-row: 2; flex-direction: row; align-items: center; } .bars .brow { grid-template-columns: minmax(0, 1fr) 40px auto; } }
