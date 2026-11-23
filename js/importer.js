@@ -115,6 +115,7 @@ function columnas(rows, h) {
     else if (n === 'CODIGO') { if (codigos === 0) map.codigo = c; else map.sap ??= c; codigos++; }
     else if (n.startsWith('DESCRIPCION')) { if (descs === 0) map.desc = c; else map.estatus ??= c; descs++; }
     else if (n.startsWith('ESTATUS')) map.estatus ??= c;
+    else if (n.includes('SERIE') || n === 'VIN' || n.includes('CHASIS')) map.serie ??= c;
     else if (n === 'VERDE') map.verde = c;
     else if (n === 'ROJO') map.rojo = c;
     else if (n.includes('% ESTADO')) map.condicion = c;
@@ -235,6 +236,7 @@ export function analizarLibro(hojas, opciones = {}) {
       clave: c.clave,
       codigo: c.codigo,
       codigo_sap: c.sap,
+      serie: (limpio(c.get('serie')) || '').toUpperCase() || null,
       descripcion: c.desc,
       tipo: familia(c.desc),
       negocio,

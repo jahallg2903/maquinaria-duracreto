@@ -37,7 +37,7 @@ const PERM = {
   importar: ['admin'], editarEquipo: ['admin', 'mantenimiento'], reportar: ['admin', 'mantenimiento'],
   gestionar: ['admin', 'mantenimiento'], comentar: ['admin', 'mantenimiento'], mantener: ['admin', 'mantenimiento'],
   costos: ['admin', 'gerencia', 'mantenimiento'], usuarios: ['admin'], reportes: ['admin', 'gerencia', 'mantenimiento'],
-  observaciones: ['admin', 'mantenimiento']
+  observaciones: ['admin', 'mantenimiento'], exportar: ['admin', 'mantenimiento']
 };
 const can = a => !!(S.yo && PERM[a].includes(S.yo.rol));
 
@@ -382,6 +382,19 @@ function fechaLarga() {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
+
+// Inversión pendiente: lo que mantenimiento estimó en las fallas abiertas; si un equipo parado no tiene
+// falla abierta con costo, se usa la inversión que trae el Excel.
+function inversionPendiente(eqs) {
+  const ids = new Set(eqs.map(e => e.id));
+  const abiertas = S.D.incidencias.filter(i => ABIERTA(i.estado) && ids.has(i.equipo_id));
+  const conCosto = new Set();
+  let total = 0;
+  abiertas.forEach(i => { const v = i.costo_estimado != null ? Number(i.costo_estimado) : null; if (v != null && !isNaN(v)) { total += v; conCosto.add(i.equipo_id); } });
+  eqs.forEach(e => { if (e.estado !== 'habilitado' && e.inversion_reparacion && !conCosto.has(e.id)) total += Number(e.inversion_reparacion); });
+  return total;
+}
+
 function vPanel() {
   const f = S.filtros.panel || (S.filtros.panel = { negocio: '' });
   if (!S.D.equipos.length) {
@@ -410,7 +423,7 @@ function vPanel() {
   const sinFecha = atencion.filter(e => !e.fecha_inhabilitado).length;
   const gastoMes = S.D.incidencias.filter(i => i.fecha_resolucion && i.fecha_resolucion.slice(0, 7) === mes && i.costo_real != null && filtraNeg(S.idx.eq.get(i.equipo_id) || {}, f.negocio)).reduce((a, i) => a + Number(i.costo_real), 0)
     + S.D.mantenimientos.filter(m => m.estado === 'ejecutado' && m.fecha_ejecucion && m.fecha_ejecucion.slice(0, 7) === mes && m.costo != null && filtraNeg(S.idx.eq.get(m.equipo_id) || {}, f.negocio)).reduce((a, m) => a + Number(m.costo), 0);
-  const inversion = atencion.filter(e => e.inversion_reparacion).reduce((a, e) => a + Number(e.inversion_reparacion), 0);
+  const inversion = inversionPendiente(eqs);
   const asignadas = S.D.incidencias.filter(i => ABIERTA(i.estado) && i.responsable_id === S.yo.id).length;
 
   const alertas = [];
@@ -422,7 +435,7 @@ function vPanel() {
 
   const mini = [
     ['Incidencias abiertas', incAb.length, criticas.length ? `${criticas.length} crítica${criticas.length > 1 ? 's' : ''}` : 'Ninguna crítica', '#/seguimiento'],
-    ...(can('costos') ? [['Gasto del mes', L(gastoMes), 'Reparaciones y mantenimiento', can('reportes') ? '#/reportes' : null], ['Inversión pendiente', L(inversion), 'Para habilitar lo parado', '#/inventario?estado=fuera']] : []),
+    ...(can('costos') ? [['Gasto del mes', L(gastoMes), 'Reparaciones y mantenimiento', can('reportes') ? '#/reportes' : null], ['Inversión pendiente', L(inversion), 'Estimado de las fallas abiertas', '#/seguimiento']] : []),
     ...(S.yo.rol === 'mantenimiento' ? [['Asignadas a mí', asignadas, 'Reparaciones pendientes', '#/seguimiento']] : [])
   ];
   const ult = S.D.importaciones && S.D.importaciones[0];
@@ -491,14 +504,14 @@ function vInventario(_, params) {
   <div class="ph">
     <div><h1>Inventario de equipos</h1><p id="invCuenta"></p></div>
     <div class="acts">
-      <button class="btn" id="invCsv">${ico('descargar')}Exportar CSV</button>
+      ${can('exportar') ? `<button class="btn" id="invCsv">${ico('descargar')}Exportar CSV</button>` : ''}
       ${can('importar') ? '<a class="btn hm" href="#/importar">Actualizar desde la hoja</a>' : ''}
       ${can('editarEquipo') ? '<button class="btn primary" id="invNuevo">+ Nuevo equipo</button>' : ''}
     </div>
   </div>
   <div class="segs" id="invSeg" role="tablist" aria-label="Estado"></div>
   <div class="card filters" role="search">
-    <div class="search">${ico('buscar')}<label class="sr" for="invQ">Buscar</label><input class="ctl" id="invQ" type="search" placeholder="Buscar equipo, código o ubicación" value="${esc(f.q)}"></div>
+    <div class="search">${ico('buscar')}<label class="sr" for="invQ">Buscar</label><input class="ctl" id="invQ" type="search" placeholder="Buscar equipo, código, serie o ubicación" value="${esc(f.q)}"></div>
     <label class="sr" for="invNeg">Negocio</label><select class="ctl" id="invNeg">${optNegocios(f.negocio)}</select>
     <label class="sr" for="invPl">Planta</label><select class="ctl" id="invPl">${optPlantas(f.planta, 'Todas las plantas', f.negocio)}</select>
     <label class="sr" for="invTipo">Tipo</label><select class="ctl hm" id="invTipo">${opts(tipos.map(t => [t, t]), f.tipo, 'Todos los tipos')}</select>
@@ -513,7 +526,7 @@ function vInventario(_, params) {
     const q = f.q.trim().toUpperCase();
     return S.D.equipos.filter(e => e.activo !== false && filtraNeg(e, f.negocio) && (!f.planta || String(e.planta_id) === f.planta)
       && (!f.tipo || e.tipo === f.tipo)
-      && (!q || [e.clave, e.codigo, e.codigo_sap, e.descripcion, e.marca, e.modelo, e.ubicacion_excel, plantaNom(e.planta_id)].some(x => String(x || '').toUpperCase().includes(q))));
+      && (!q || [e.clave, e.codigo, e.codigo_sap, e.serie, e.descripcion, e.marca, e.modelo, e.ubicacion_excel, plantaNom(e.planta_id)].some(x => String(x || '').toUpperCase().includes(q))));
   };
   const porEstado = (l, st) => !st ? l : l.filter(e => st === 'fuera' ? ['inhabilitado', 'taller'].includes(e.estado) : e.estado === st);
   const filtrar = () => porEstado(base(), f.estado);
@@ -548,7 +561,7 @@ function vInventario(_, params) {
       $('#invNeg', m).onchange = e => { f.negocio = e.target.value; f.planta = ''; f.pag = 1; render(); };
       $('#invPl', m).onchange = e => { f.planta = e.target.value; f.pag = 1; pintar(m); };
       $('#invTipo', m).onchange = e => { f.tipo = e.target.value; f.pag = 1; pintar(m); };
-      $('#invCsv', m).onclick = () => {
+      if ($('#invCsv', m)) $('#invCsv', m).onclick = () => {
         const l = filtrar();
         csv(`inventario-maquinaria-${hoyISO()}.csv`,
           ['Código', 'Código SAP', 'Equipo', 'Tipo', 'Negocio', 'Planta', 'Ubicación (Excel)', 'Marca', 'Modelo', 'Año', 'Estado', 'Fecha inhabilitado', 'Días fuera', 'Causa', 'Observaciones'],
@@ -580,6 +593,7 @@ function formEquipo(eq) {
         <label class="fld">Modelo<input class="ctl" name="modelo" value="${esc(e.modelo || '')}"></label>
         <label class="fld">Año<input class="ctl" name="anio" inputmode="numeric" value="${esc(e.anio || '')}"></label>
       </div>
+      <label class="fld">Número de serie<input class="ctl" name="serie" value="${esc(e.serie || '')}" placeholder="Serie, VIN o chasis"></label>
       <div class="grid2">
         <label class="fld">Estado operativo<select class="ctl" name="estado">${opts(ORDEN_ESTADOS.map(s => [s, ESTADOS[s]]), e.estado)}</select></label>
         <label class="fld">Fecha en que se inhabilitó<input class="ctl" type="date" name="fecha_inhabilitado" value="${esc(e.fecha_inhabilitado || '')}"><small>Solo si está fuera de servicio</small></label>
@@ -599,16 +613,17 @@ function formEquipo(eq) {
       if (fd.anio && (!Number.isInteger(anio) || anio < 1950 || anio > 2100)) return show('El año debe ser un número entre 1950 y 2100.');
       const datos = {
         descripcion: fd.descripcion.trim(), tipo: fd.tipo?.trim() || null, negocio_id: fd.negocio_id || null, planta_id: fd.planta_id ? Number(fd.planta_id) : null,
-        marca: fd.marca?.trim() || null, modelo: fd.modelo?.trim() || null, anio, estado: fd.estado,
+        marca: fd.marca?.trim() || null, modelo: fd.modelo?.trim() || null, anio, estado: fd.estado, serie: fd.serie?.trim().toUpperCase() || null,
         fecha_inhabilitado: ['inhabilitado', 'taller'].includes(fd.estado) ? (fd.fecha_inhabilitado || null) : null,
         causa_inactividad: fd.causa_inactividad?.trim() || null, observaciones: fd.observaciones?.trim() || null
       };
       if (!eq || eq.origen !== 'excel') {
         const codigo = fd.codigo?.trim().toUpperCase() || null, sap = fd.codigo_sap?.trim().toUpperCase() || null;
-        if (!codigo && !sap) return show('Indique al menos el código interno o el código SAP.');
+        if (!codigo && !sap && !datos.serie) return show('Indique el código interno, el código SAP o el número de serie.');
         Object.assign(datos, { codigo, codigo_sap: sap });
         if (!eq) {
-          datos.clave = codigo || sap;
+          datos.clave = codigo || sap || datos.serie;
+          if (datos.serie && S.D.equipos.some(x => x.serie && x.serie === datos.serie)) return show(`Ya existe un equipo con la serie ${datos.serie}.`);
           if (S.D.equipos.some(x => x.clave === datos.clave)) return show(`Ya existe un equipo con el código ${datos.clave}.`);
         }
       }
@@ -651,6 +666,7 @@ function vEquipo(id) {
           <div><dt>Planta</dt><dd>${esc(plantaNom(e.planta_id))}</dd></div>
           <div><dt>Ubicación en el Excel</dt><dd>${esc(e.ubicacion_excel || '—')}</dd></div>
           <div><dt>Tipo</dt><dd>${esc(e.tipo || '—')}</dd></div>
+          <div><dt>Número de serie</dt><dd>${esc(e.serie || '—')}</dd></div>
           <div><dt>Marca</dt><dd>${esc(e.marca || '—')}</dd></div>
           <div><dt>Modelo</dt><dd>${esc(e.modelo || '—')}</dd></div>
           <div><dt>Año</dt><dd>${esc(e.anio || '—')}</dd></div>
@@ -690,32 +706,49 @@ function vEquipo(id) {
 // ================================================================ REPORTAR FALLA
 function vFalla(_, params) {
   const visibles = S.D.equipos.filter(e => e.activo !== false).sort((a, b) => eqCod(a).localeCompare(eqCod(b)));
-  const etiqueta = e => `${eqCod(e)} · ${e.descripcion}`;
+  const etiqueta = e => `${eqCod(e)} · ${nombreBonito(e.descripcion)}${e.serie ? ' · Serie ' + e.serie : ''}`;
   const pre = params.equipo ? S.idx.eq.get(params.equipo) : null;
   const html = `
-  <div class="ph"><div><h1>Reportar falla</h1><p>Registre el problema; mantenimiento lo verá de inmediato en Seguimiento.</p></div></div>
-  <div id="fallaOk"></div>
+  <div class="ph"><div><h1>Reportar falla</h1><p>Escriba el equipo; si no está en el inventario, se agrega solo.</p></div></div>
   <div class="row top" style="max-width:1100px">
     <form class="card pad form grow" id="ff" novalidate>
       <label class="fld">Equipo afectado
-        <input class="ctl" id="ffEq" list="dlEq" autocomplete="off" placeholder="Escriba el código o el nombre" value="${pre ? esc(etiqueta(pre)) : ''}" required>
+        <input class="ctl" id="ffEq" list="dlEq" autocomplete="off" placeholder="Código, nombre o número de serie" value="${pre ? esc(etiqueta(pre)) : ''}" required>
         <datalist id="dlEq">${visibles.map(e => `<option value="${esc(etiqueta(e))}">`).join('')}</datalist>
-        <small>Negocio y planta se completan solos.</small>
+        <small id="ffEqH">Elija de la lista o escriba un equipo nuevo.</small>
       </label>
-      <div class="grid2">
+      <div class="grid2" id="ffInfo" ${pre ? '' : 'hidden'}>
         <label class="fld">Negocio<input class="ctl" id="ffNeg" readonly value="${pre ? esc(negNom(pre.negocio_id)) : ''}"></label>
         <label class="fld">Planta<input class="ctl" id="ffPl" readonly value="${pre ? esc(plantaNom(pre.planta_id)) : ''}"></label>
+      </div>
+      <fieldset class="nuevo-eq" id="ffNuevo" hidden>
+        <legend><span class="chip ok-chip">Equipo nuevo</span> Se agregará al inventario</legend>
+        <label class="fld">Nombre del equipo<input class="ctl" id="nqDesc" placeholder="ej. Camión concretero Mack"></label>
+        <div class="grid2">
+          <label class="fld">Negocio<select class="ctl" id="nqNeg">${opts(S.D.negocios.map(n => [n.id, n.nombre]), '', 'Elija el negocio')}</select></label>
+          <label class="fld">Planta<select class="ctl" id="nqPl">${opts(S.D.plantas.map(p => [p.id, p.nombre]), '', 'Sin planta')}</select></label>
+        </div>
+        <div class="grid2">
+          <label class="fld">Código interno<input class="ctl" id="nqCod" placeholder="Opcional · ej. 45BC-30"></label>
+          <label class="fld">Número de serie<input class="ctl" id="nqSerie" placeholder="Opcional · serie, VIN o chasis"></label>
+        </div>
+        <div class="grid2">
+          <label class="fld">Marca<input class="ctl" id="nqMarca" placeholder="Opcional"></label>
+          <label class="fld">Modelo<input class="ctl" id="nqModelo" placeholder="Opcional"></label>
+        </div>
+      </fieldset>
+      <label class="fld">Descripción de la falla<textarea class="ctl" id="ffDesc" placeholder="Qué ocurre, desde cuándo y en qué condiciones" required></textarea></label>
+      <div class="grid2">
+        <label class="fld">Costo aproximado de la reparación<div class="money"><span>L</span><input class="ctl" id="ffCosto" inputmode="decimal" placeholder="0.00" required></div><small>Suma a la inversión pendiente del panel.</small></label>
         <label class="fld">Fecha del reporte<input class="ctl" id="ffFecha" type="date" value="${hoyISO()}" max="${hoyISO()}"></label>
       </div>
-      <label class="fld">Descripción de la falla<textarea class="ctl" id="ffDesc" placeholder="Qué ocurre, desde cuándo y en qué condiciones" required></textarea></label>
       <label class="fld">Causa, si se conoce<input class="ctl" id="ffCausa" placeholder="Opcional"></label>
       <fieldset style="border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:8px">
         <legend class="fld" style="padding:0;margin-bottom:8px">Prioridad</legend>
         <div class="seg" id="ffPrio">${Object.entries(PRIO).map(([k, [l, c]]) => `<button type="button" data-p="${k}" aria-pressed="${k === 'media'}"><span class="dot" style="background:${c}"></span>${l}</button>`).join('')}</div>
         <small class="cap" id="ffPrioH">${PRIO.media[2]}</small>
       </fieldset>
-      <label class="check"><input type="checkbox" id="ffFuera"><span><b>El equipo quedó fuera de servicio</b><br><span class="cap">Pasa a «Inhabilitado» en el inventario y en el panel hasta que se repare.</span></span></label>
-      <label class="fld">Persona que reporta<input class="ctl" readonly value="${esc((S.yo.nombre || S.yo.username) + ' · ' + ROLES[S.yo.rol])}"></label>
+      <label class="check"><input type="checkbox" id="ffFuera"><span><b>El equipo quedó fuera de servicio</b><br><span class="cap">Pasa a «Inhabilitado» y baja la disponibilidad del panel hasta que se repare.</span></span></label>
       <div class="fld">Fotografías o archivos
         <label class="drop">${ico('importar', 'width="22" height="22"')}<b style="font-size:13px">Toque para tomar una foto o elegir archivos</b><span class="cap">JPG, PNG o PDF · hasta 10 MB cada uno</span>
           <input type="file" id="ffFiles" multiple accept="image/*,application/pdf"></label>
@@ -726,22 +759,29 @@ function vFalla(_, params) {
     </form>
     <aside class="card pad side-col"><h2 style="margin-bottom:10px">Qué pasa al registrar</h2>
       <ol style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:10px;font-size:13px;color:var(--fg-2)">
-        <li>Se asigna un código único de incidencia (INC-0001, INC-0002…).</li>
-        <li>La falla aparece en Seguimiento con estado «Reportada».</li>
-        <li>Si marcó que el equipo quedó fuera de servicio, cambia a «Inhabilitado» y se refleja en el panel.</li>
-        <li>Cada cambio posterior queda en el historial con fecha, hora y usuario.</li>
+        <li>Se asigna un código único (INC-0001, INC-0002…) y aparece en Seguimiento.</li>
+        <li>Si el equipo no existía, se agrega al inventario y cuenta en el total y en su negocio.</li>
+        <li>El costo aproximado suma a la inversión pendiente.</li>
+        <li>Si quedó fuera de servicio, el panel lo refleja al instante.</li>
       </ol></aside>
   </div>`;
   return {
     titulo: 'Reportar falla', html,
     bind: m => {
       let eq = pre, prioSel = 'media', fueraTocado = false, files = [];
+      const N = k => k.toUpperCase().replace(/\s+/g, ' ').trim();
       const resolver = () => {
-        const v = $('#ffEq', m).value.trim();
-        eq = visibles.find(e => etiqueta(e) === v) || visibles.find(e => eqCod(e).toUpperCase() === v.toUpperCase()) || null;
+        const v = $('#ffEq', m).value.trim(), V = N(v);
+        eq = !v ? null : visibles.find(e => etiqueta(e) === v) || visibles.find(e => [e.clave, e.codigo, e.codigo_sap, e.serie].some(c => c && N(String(c)) === V)) || null;
+        $('#ffInfo', m).hidden = !eq;
+        $('#ffNuevo', m).hidden = !!eq || !v;
         $('#ffNeg', m).value = eq ? negNom(eq.negocio_id) : '';
         $('#ffPl', m).value = eq ? plantaNom(eq.planta_id) : '';
+        $('#ffEqH', m).textContent = eq ? 'Equipo del inventario.' : v ? 'No está en el inventario: complete los datos de abajo y se agregará.' : 'Elija de la lista o escriba un equipo nuevo.';
+        if (!eq && v && !$('#nqDesc', m).dataset.tocado) $('#nqDesc', m).value = v;
       };
+      $('#nqDesc', m).addEventListener('input', e => { e.target.dataset.tocado = '1'; });
+      $('#nqNeg', m).onchange = e => { $('#nqPl', m).innerHTML = optPlantas('', 'Sin planta', e.target.value); };
       $('#ffEq', m).addEventListener('input', resolver);
       $('#ffEq', m).addEventListener('change', resolver);
       $('#ffFuera', m).onchange = () => { fueraTocado = true; };
@@ -762,16 +802,31 @@ function vFalla(_, params) {
         resolver();
         const err = $('#ffErr', m), show = t => { err.textContent = t; err.hidden = false; err.scrollIntoView({ block: 'center' }); };
         err.hidden = true;
-        if (!eq) return show('Elija un equipo de la lista.');
+        const typed = $('#ffEq', m).value.trim();
+        if (!eq && !typed) return show('Escriba o elija el equipo afectado.');
+        let nuevo = null;
+        if (!eq) {
+          const desc = $('#nqDesc', m).value.trim();
+          if (desc.length < 3) return show('Escriba el nombre del equipo nuevo.');
+          if (!$('#nqNeg', m).value) return show('Elija a qué negocio pertenece el equipo nuevo.');
+          nuevo = { descripcion: desc, negocio_id: $('#nqNeg', m).value, planta_id: $('#nqPl', m).value ? Number($('#nqPl', m).value) : null,
+            codigo: $('#nqCod', m).value.trim().toUpperCase() || null, serie: $('#nqSerie', m).value.trim().toUpperCase() || null,
+            marca: $('#nqMarca', m).value.trim() || null, modelo: $('#nqModelo', m).value.trim() || null };
+          const dup = visibles.find(e => (nuevo.codigo && [e.clave, e.codigo, e.codigo_sap].includes(nuevo.codigo)) || (nuevo.serie && e.serie === nuevo.serie));
+          if (dup) { $('#ffEq', m).value = etiqueta(dup); resolver(); return show(`Ese equipo ya existe en el inventario (${eqCod(dup)}). Lo seleccioné por usted; revise y vuelva a registrar.`); }
+        }
         const desc = $('#ffDesc', m).value.trim();
         if (desc.length < 5) return show('Describa la falla (al menos unas palabras).');
+        const costoTxt = $('#ffCosto', m).value.replace(/[L,\s]/gi, '');
+        const costo = costoTxt === '' ? NaN : Number(costoTxt);
+        if (isNaN(costo) || costo < 0) return show('Escriba el costo aproximado de la reparación (puede ser 0 si no tendrá costo).');
         const f = $('#ffFecha', m).value || hoyISO();
         if (f > hoyISO()) return show('La fecha del reporte no puede ser futura.');
         await accion(ev.submitter, async () => {
-          const r = await S.db.crearIncidencia({ equipo_id: eq.id, fecha_reporte: f, descripcion: desc, causa: $('#ffCausa', m).value.trim() || null, prioridad: prioSel, fuera_servicio: $('#ffFuera', m).checked }, files);
+          const r = await S.db.crearIncidencia({ equipo_id: eq ? eq.id : null, nuevo_equipo: nuevo, fecha_reporte: f, descripcion: desc, causa: $('#ffCausa', m).value.trim() || null, prioridad: prioSel, fuera_servicio: $('#ffFuera', m).checked, costo_estimado: costo }, files);
           await recargar();
           location.hash = `#/incidencia/${r.id}`;
-          toast(`Falla registrada como ${r.codigo}`);
+          toast(nuevo ? `Falla ${r.codigo} registrada y equipo agregado al inventario` : `Falla registrada como ${r.codigo}`);
         });
       };
     }
@@ -1042,7 +1097,7 @@ function vReportes() {
   const costoMant = mantEj.filter(m => m.costo != null).reduce((a, m) => a + Number(m.costo), 0);
   const conEstado = eqs.filter(e => e.estado !== 'sin_info');
   const disp = pct(eqs.filter(e => e.estado === 'habilitado').length, conEstado.length);
-  const inversion = eqs.filter(e => e.estado !== 'habilitado' && e.inversion_reparacion).reduce((a, e) => a + Number(e.inversion_reparacion), 0);
+  const inversion = inversionPendiente(eqs);
 
   const porNeg = S.D.negocios.map(n => ({ n: n.nombre, v: incPer.filter(i => S.idx.eq.get(i.equipo_id)?.negocio_id === n.id).length }));
   const sinNegInc = incPer.filter(i => !S.idx.eq.get(i.equipo_id)?.negocio_id).length;
@@ -1053,7 +1108,7 @@ function vReportes() {
 
   const html = `
   <div class="ph"><div><h1>Reportes y análisis</h1><p>Indicadores calculados solo con la información registrada.</p></div>
-    <div class="acts"><button class="btn" id="repXlsx">${ico('descargar')}Exportar a Excel</button></div></div>
+    ${can('exportar') ? `<div class="acts"><button class="btn" id="repXlsx">${ico('descargar')}Exportar a Excel</button></div>` : ''}</div>
   <div class="card filters">
     <select class="ctl" id="rNeg" aria-label="Negocio">${optNegocios(f.negocio)}</select>
     <select class="ctl" id="rPl" aria-label="Planta">${optPlantas(f.planta, 'Todas las plantas', f.negocio)}</select>
@@ -1067,7 +1122,7 @@ function vReportes() {
     ${can('costos') ? `
     <div class="card kpi"><span class="l">Costo de reparaciones</span><span class="v tnum">${L(costoRep)}</span><span class="s">${conCosto.length} de ${resueltas.length} resueltas con costo real</span></div>
     <div class="card kpi"><span class="l">Costo de mantenimiento</span><span class="v tnum">${L(costoMant)}</span><span class="s">${mantEj.length} mantenimientos ejecutados</span></div>
-    <div class="card kpi"><span class="l">Inversión estimada pendiente</span><span class="v tnum">${L(inversion)}</span><span class="s">Equipos fuera de servicio, según el Excel</span></div>` : ''}
+    <div class="card kpi"><span class="l">Inversión estimada pendiente</span><span class="v tnum">${L(inversion)}</span><span class="s">Costos estimados de las fallas abiertas</span></div>` : ''}
   </section>
   <div class="row">
     <section class="card pad grow"><h2>Evolución de la disponibilidad</h2><p class="cap" id="dispCap" style="margin:4px 0 12px"></p><div class="chart-box"><canvas id="chDisp" role="img" aria-label="Disponibilidad semanal por negocio"></canvas></div></section>
@@ -1095,7 +1150,7 @@ function vReportes() {
       $('#rNeg', m).onchange = set('negocio'); $('#rPl', m).onchange = set('planta');
       $('#rDesde', m).onchange = set('desde'); $('#rHasta', m).onchange = set('hasta');
       filasClicables(m);
-      $('#repXlsx', m).onclick = () => exportarExcel(eqs, incs, f);
+      if ($('#repXlsx', m)) $('#repXlsx', m).onclick = () => exportarExcel(eqs, incs, f);
       if (!window.Chart) { $$('.chart-box', m).forEach(b => b.innerHTML = '<p class="cap">No se pudo cargar la librería de gráficos (revise la conexión).</p>'); return; }
       Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
       Chart.defaults.color = '#5F5F58';
@@ -1159,10 +1214,12 @@ function exportarExcel(eqs, incs, f) {
 // ================================================================ IMPORTAR EXCEL
 function vImportar() {
   const imp = S.importacion;
-  const existentes = new Set(S.D.equipos.map(e => e.clave));
+  const C = v => v ? String(v).toUpperCase().replace(/\s+/g, '') : null;
+  const conocidos = new Set(); S.D.equipos.forEach(e => [e.clave, e.codigo, e.codigo_sap, e.serie].forEach(v => { if (C(v)) conocidos.add(C(v)); }));
+  const yaExiste = e => [e.clave, e.codigo, e.codigo_sap, e.serie].some(v => C(v) && conocidos.has(C(v)));
   let cuerpo = '';
   if (imp && imp.res) {
-    const r = imp.res, nuevos = r.equipos.filter(e => !existentes.has(e.clave)).length;
+    const r = imp.res, nuevos = r.equipos.filter(e => !yaExiste(e)).length;
     const grupos = r.avisos.reduce((m, a) => { const k = a.aviso.replace(/\s*\(.*\)/, '').replace(/\d+/g, '§'); (m[k] = m[k] || []).push(a); return m; }, {});
     const lista = (titulo, items, cols) => items.length ? `<details class="card" style="padding:0"><summary style="padding:14px 18px;cursor:pointer;font-weight:600;font-size:14px">${esc(titulo)} · ${items.length}</summary><div class="tbl-wrap"><table class="tbl"><tbody>${items.map(x => `<tr>${cols.map(c => `<td class="${c === 'ref' ? 'nw cap' : ''}">${esc(x[c] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div></details>` : '';
     cuerpo = `
@@ -1177,7 +1234,7 @@ function vImportar() {
       </div>
       <div class="legend" style="margin-top:14px">${ORDEN_ESTADOS.map(s => `<span><span class="dot ${s}"></span>${ESTADOS[s]}: ${r.resumen.porEstado[s] || 0}</span>`).join('')}</div>
       <label class="check" style="margin-top:16px"><input type="checkbox" id="impWym" ${imp.excluirWym ? 'checked' : ''}><span>Excluir equipos cuya ubicación o estatus menciona WyM ${r.excluidos.length ? `(${r.excluidos.length} excluidos)` : ''}</span></label>
-      <div class="note" style="margin-top:14px">La importación crea los equipos nuevos y actualiza los existentes por su código. No borra equipos ni toca fallas, reparaciones o mantenimientos. Marca, modelo, año, observaciones y el negocio asignado a mano se conservan.</div>
+      <div class="note" style="margin-top:14px">La importación revisa el código interno, el código SAP y el número de serie: si el equipo ya está, lo actualiza; si no, lo agrega. No borra equipos ni toca fallas, reparaciones o mantenimientos. Marca, modelo, año, observaciones y el negocio asignado a mano se conservan.</div>
       <div class="form-acts" style="margin-top:16px"><button class="btn" id="impOtro">Elegir otro archivo</button><button class="btn primary" id="impGo" ${r.equipos.length ? '' : 'disabled'}>Importar ${r.equipos.length} equipos</button></div>
       ${imp.resultado ? `<div class="okmsg" style="margin-top:14px"><b>Importación terminada.</b> ${imp.resultado.nuevos} nuevos, ${imp.resultado.actualizados} actualizados, ${r.rechazados.length} rechazados, ${r.duplicados.length} duplicados omitidos. <a href="#/panel">Ir al panel</a></div>` : ''}
     </section>

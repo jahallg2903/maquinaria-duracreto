@@ -216,9 +216,26 @@ class DemoDB {
   evento(incId, tipo, detalle, usuario = this.s.sesion) {
     this.s.eventos.push({ id: ++this.s.seq.ev, incidencia_id: incId, fecha: new Date().toISOString(), usuario_id: usuario, tipo, detalle });
   }
+  porCodigos(codigo, sap, serie) {
+    const C = v => v ? String(v).toUpperCase().replace(/\s+/g, '') : null;
+    const c = C(codigo), s = C(sap), se = C(serie);
+    if (!c && !s && !se) return null;
+    return this.s.equipos.find(e => (c && [e.clave, e.codigo, e.codigo_sap].some(v => C(v) === c)) || (s && [e.clave, e.codigo, e.codigo_sap].some(v => C(v) === s)) || (se && [e.serie, e.clave].some(v => C(v) === se))) || null;
+  }
   async crearIncidencia(inc, files = []) {
-    const eq = this.s.equipos.find(e => e.id === inc.equipo_id);
+    if (inc.costo_estimado == null || isNaN(Number(inc.costo_estimado)) || Number(inc.costo_estimado) < 0) throw new Error('Escriba el costo aproximado de la reparación.');
+    let eq = this.s.equipos.find(e => e.id === inc.equipo_id);
+    if (!eq && inc.nuevo_equipo) {
+      const ne = inc.nuevo_equipo;
+      eq = this.porCodigos(ne.codigo, null, ne.serie);
+      if (!eq) {
+        let clave = ne.codigo || ne.serie;
+        if (!clave) { const max = Math.max(0, ...this.s.equipos.map(e => Number((/^NUEVO-(\d+)$/.exec(e.clave || '') || [])[1] || 0))); clave = 'NUEVO-' + String(max + 1).padStart(3, '0'); }
+        eq = await this.guardarEquipo({ clave, codigo: ne.codigo, codigo_sap: null, serie: ne.serie, descripcion: ne.descripcion, tipo: null, negocio_id: ne.negocio_id, planta_id: ne.planta_id, marca: ne.marca, modelo: ne.modelo, anio: null, estado: 'habilitado' });
+      }
+    }
     if (!eq) throw new Error('Equipo no encontrado');
+    const { nuevo_equipo, ...incLimpia } = inc; inc = { ...incLimpia, equipo_id: eq.id, costo_estimado: Number(inc.costo_estimado) };
     if (!this.yo || !(['admin', 'mantenimiento'].includes(this.yo.rol) || (this.yo.rol === 'planta' && this.ve(this.yo, eq.planta_id)))) throw new Error('No tiene permiso para esta acción.');
     const id = ++this.s.seq.inc;
     const ahora = new Date().toISOString();
@@ -280,19 +297,19 @@ class DemoDB {
     const ahora = new Date().toISOString();
     for (const e of equipos) {
       const planta_id = this.plantaId(e.planta, e.negocio);
-      const cur = this.s.equipos.find(x => x.clave === e.clave);
+      const cur = this.s.equipos.find(x => x.clave === e.clave) || this.porCodigos(e.codigo, e.codigo_sap, e.serie);
       const campos = {
         codigo: e.codigo, codigo_sap: e.codigo_sap, descripcion: e.descripcion, tipo: e.tipo, ubicacion_excel: e.ubicacion_excel,
         condicion_pct: e.condicion_pct, consumo_combustible: e.consumo_combustible, plazo_reparacion: e.plazo_reparacion,
         causa_inactividad: e.causa_inactividad, inversion_reparacion: e.inversion_reparacion, hoja_origen: e.hoja_origen, fila_origen: e.fila_origen
       };
       if (cur) {
-        Object.assign(cur, campos, { negocio_id: cur.negocio_id || e.negocio, planta_id: planta_id || cur.planta_id, activo: true, updated_at: ahora });
+        Object.assign(cur, campos, { serie: cur.serie || e.serie || null, negocio_id: cur.negocio_id || e.negocio, planta_id: planta_id || cur.planta_id, activo: true, updated_at: ahora });
         if (e.fecha_inhabilitado) cur.fecha_inhabilitado = e.fecha_inhabilitado;
         this.cambiarEstado(cur, e.estado, 'excel');
         actualizados++;
       } else {
-        const n = { id: crypto.randomUUID(), clave: e.clave, ...campos, negocio_id: e.negocio, planta_id, estado: e.estado, fecha_inhabilitado: e.fecha_inhabilitado,
+        const n = { id: crypto.randomUUID(), clave: e.clave, serie: e.serie || null, ...campos, negocio_id: e.negocio, planta_id, estado: e.estado, fecha_inhabilitado: e.fecha_inhabilitado,
           marca: null, modelo: null, anio: null, observaciones: null, origen: 'excel', activo: true, created_at: ahora, updated_at: ahora };
         this.s.equipos.push(n); this.logEstado(n, null, 'excel'); nuevos++;
       }
