@@ -1355,7 +1355,7 @@ function formUsuario(p) {
     <h2>${nuevo ? 'Nuevo usuario' : 'Editar ' + esc(u.username)}</h2>
     <form class="form" id="uf" novalidate>
       <div class="grid2">
-        <label class="fld">Usuario<input class="ctl" name="username" value="${esc(u.username || '')}" ${nuevo ? '' : 'readonly'} autocapitalize="none" placeholder="ej. jmartinez"></label>
+        <label class="fld">Usuario<input class="ctl" name="username" value="${esc(u.username || '')}" autocapitalize="none" autocomplete="off" placeholder="ej. jmartinez"></label>
         ${nuevo ? '<label class="fld">Contraseña<input class="ctl" type="text" name="password" autocomplete="off"><small>8+ caracteres con letras y números. La persona podrá cambiarla luego en «Mi cuenta».</small></label>' : ''}
       </div>
       <div class="grid2">
@@ -1377,7 +1377,9 @@ function formUsuario(p) {
         if (nuevo) {
           await S.db.crearUsuario({ username: fm.username.value.trim().toLowerCase(), password: fm.password.value, nombre: fm.nombre.value.trim(), cargo: fm.cargo.value.trim(), rol: fm.rol.value, plantas: [] });
         } else {
-          await S.db.guardarPerfil({ id: u.id, nombre: fm.nombre.value.trim(), cargo: fm.cargo.value.trim(), rol: u.id === S.yo.id ? u.rol : fm.rol.value, activo: u.id === S.yo.id ? true : fm.activo.checked }, []);
+          const un = fm.username.value.trim().toLowerCase();
+          if (!/^[a-z0-9._-]{3,30}$/.test(un)) throw new Error('Usuario inválido: use de 3 a 30 letras minúsculas, números, punto o guion.');
+          await S.db.guardarPerfil({ id: u.id, username: un, nombre: fm.nombre.value.trim(), cargo: fm.cargo.value.trim(), rol: u.id === S.yo.id ? u.rol : fm.rol.value, activo: u.id === S.yo.id ? true : fm.activo.checked }, []);
         }
         await recargar(); cerrar(); toast('Usuario guardado'); render();
       });

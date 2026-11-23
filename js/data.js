@@ -326,7 +326,13 @@ class DemoDB {
   async guardarPlanta(p) { this.exigir(['maestro']); Object.assign(this.s.plantas.find(x => x.id === p.id), p); this.guardar(); }
   async guardarPerfil(p, plantas) {
     this.exigir(['maestro']);
-    Object.assign(this.s.perfiles.find(x => x.id === p.id), { nombre: p.nombre, cargo: p.cargo, rol: p.rol, activo: p.activo });
+    const per = this.s.perfiles.find(x => x.id === p.id);
+    if (p.username && p.username !== per.username) {
+      if (!/^[a-z0-9._-]{3,30}$/.test(p.username)) throw new Error('Usuario inválido: use de 3 a 30 letras minúsculas, números, punto o guion.');
+      if (this.s.perfiles.some(x => x.username === p.username)) throw new Error('Ya existe el usuario ' + p.username + '.');
+      per.username = p.username;
+    }
+    Object.assign(per, { nombre: p.nombre, cargo: p.cargo, rol: p.rol, activo: p.activo });
     this.s.perfilPlantas = this.s.perfilPlantas.filter(x => x.perfil_id !== p.id).concat(plantas.map(planta_id => ({ perfil_id: p.id, planta_id })));
     if (this.s.plantasDemo) delete this.s.plantasDemo[p.id];
     this.guardar();
