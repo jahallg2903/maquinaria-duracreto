@@ -317,7 +317,7 @@ function navItems() {
 }
 
 function marco(ruta, titulo, contenido) {
-  const activo = { equipo: 'inventario', incidencia: 'seguimiento' }[ruta] || ruta;
+  const activo = { equipo: 'inventario', incidencia: 'seguimiento', negocio: 'panel' }[ruta] || ruta;
   return `
   ${MODO_DEMO ? `<div class="demo-band"><b>MODO DE PRUEBA</b> Los datos se guardan solo en este navegador. Para uso real, conecte la hoja de Google (ver README).</div>` : ''}
   <div class="shell" id="shell">
@@ -343,7 +343,7 @@ function render() {
   const [path, query] = (location.hash.replace(/^#\/?/, '') || 'panel').split('?');
   const [ruta, id] = path.split('/');
   const params = Object.fromEntries(new URLSearchParams(query || ''));
-  const vistas = { panel: vPanel, inventario: vInventario, equipo: vEquipo, falla: vFalla, seguimiento: vSeguimiento, incidencia: vIncidencia, mantenimiento: vMantenimiento, reportes: vReportes, importar: vImportar, usuarios: vUsuarios };
+  const vistas = { panel: vPanel, inventario: vInventario, negocio: vNegocio, equipo: vEquipo, falla: vFalla, seguimiento: vSeguimiento, incidencia: vIncidencia, mantenimiento: vMantenimiento, reportes: vReportes, importar: vImportar, usuarios: vUsuarios };
   let v = vistas[ruta] || vPanel;
   if ((ruta === 'importar' && !can('importar')) || (ruta === 'usuarios' && !can('usuarios')) || (ruta === 'reportes' && !can('reportes')) || (ruta === 'falla' && !can('reportar'))) v = vPanel;
   const vista = v(id, params);
@@ -386,16 +386,18 @@ function fechaLarga() {
 }
 
 
-// Inversión pendiente: lo que mantenimiento estimó en las fallas abiertas; si un equipo parado no tiene
-// falla abierta con costo, se usa la inversión que trae el Excel.
+// Costo de reparación de un equipo: el que puso el taller (o el Excel) en el equipo; si no hay,
+// la suma de lo estimado en sus fallas abiertas. null = nadie ha puesto costo todavía.
+function costoEquipo(e) {
+  if (e.inversion_reparacion !== null && e.inversion_reparacion !== undefined && e.inversion_reparacion !== '') return Number(e.inversion_reparacion);
+  const v = S.D.incidencias.filter(i => i.equipo_id === e.id && ABIERTA(i.estado) && i.costo_estimado != null && i.costo_estimado !== '');
+  return v.length ? v.reduce((a, i) => a + Number(i.costo_estimado), 0) : null;
+}
+const parado = e => e.estado === 'inhabilitado' || e.estado === 'taller';
+const sinCosto = e => parado(e) && costoEquipo(e) == null;
+// Inversión pendiente: lo que falta invertir para dejar operativo lo que está parado o con falla abierta.
 function inversionPendiente(eqs) {
-  const ids = new Set(eqs.map(e => e.id));
-  const abiertas = S.D.incidencias.filter(i => ABIERTA(i.estado) && ids.has(i.equipo_id));
-  const conCosto = new Set();
-  let total = 0;
-  abiertas.forEach(i => { const v = i.costo_estimado != null ? Number(i.costo_estimado) : null; if (v != null && !isNaN(v)) { total += v; conCosto.add(i.equipo_id); } });
-  eqs.forEach(e => { if (e.estado !== 'habilitado' && e.inversion_reparacion && !conCosto.has(e.id)) total += Number(e.inversion_reparacion); });
-  return total;
+  return eqs.reduce((t, e) => { const c = (parado(e) || S.D.incidencias.some(i => i.equipo_id === e.id && ABIERTA(i.estado))) ? costoEquipo(e) : null; return t + (c || 0); }, 0);
 }
 
 function vPanel() {
@@ -434,6 +436,8 @@ function vPanel() {
   if (criticas.length) alertas.push(['inhabilitado', `${criticas.length} falla${criticas.length > 1 ? 's' : ''} crítica${criticas.length > 1 ? 's' : ''} sin resolver`, criticas.slice(0, 3).map(i => i.codigo).join(' · '), '#/seguimiento']);
   if (vencidos.length) alertas.push(['taller', `${vencidos.length} mantenimiento${vencidos.length > 1 ? 's' : ''} vencido${vencidos.length > 1 ? 's' : ''}`, 'Programados con fecha anterior a hoy', '#/mantenimiento']);
   if (sinFecha) alertas.push(['sin_info', `${sinFecha} equipos parados sin fecha`, 'Registre desde cuándo están fuera de servicio', '#/inventario?estado=fuera']);
+  const nSinCosto = can('costos') ? atencion.filter(sinCosto).length : 0;
+  if (nSinCosto) alertas.push(['taller', `${nSinCosto} equipo${nSinCosto > 1 ? 's' : ''} parado${nSinCosto > 1 ? 's' : ''} sin costo de reparación`, can('editarEquipo') ? 'Toque para agregar cuánto costará repararlos' : 'Falta estimar cuánto costará repararlos', '#/inventario?estado=sincosto']);
   if (sinNeg && can('editarEquipo')) alertas.push(['sin_info', `${sinNeg} equipos sin negocio asignado`, 'Asígnelos desde la ficha de cada equipo', '#/inventario?negocio=__sin']);
 
   const mini = [
@@ -464,10 +468,10 @@ function vPanel() {
     <section class="card pad grow" aria-label="Disponibilidad por negocio">
       <div class="sec-h"><h2>Disponibilidad por negocio</h2>
         <div class="legend"><span><i style="background:var(--ok)"></i>Operativo</span><span><i style="background:var(--bad)"></i>Inhabilitado</span><span><i style="background:var(--warn)"></i>Taller</span></div></div>
-      <div class="bars">${grupos.map(g => { const d = pct(g.k.habilitado, g.n - g.k.sin_info); return `<div class="brow">
+      <div class="bars">${grupos.map(g => { const d = pct(g.k.habilitado, g.n - g.k.sin_info); return `<a class="brow brow-link" href="#/negocio/${encodeURIComponent(g.id)}" title="Ver equipos de ${esc(g.nombre)}">
         <div class="n"><b>${esc(g.nombre)}</b><small>${g.n} equipos${g.k.inhabilitado + g.k.taller ? ` · ${g.k.inhabilitado + g.k.taller} parados` : ''}</small></div>
         <div class="bar" role="img" aria-label="${esc(g.nombre)}: ${ORDEN_ESTADOS.map(s => `${g.k[s]} ${ESTADOS[s].toLowerCase()}`).join(', ')}">${ORDEN_ESTADOS.filter(s => g.k[s]).map(s => `<div class="${s}" style="width:${g.k[s] / g.n * 100}%" title="${ESTADOS[s]}: ${g.k[s]}"></div>`).join('')}</div>
-        <span class="pct tnum ${d >= 85 ? 'ok' : d >= 70 ? 'warn' : 'bad'}">${d}%</span></div>`; }).join('')}
+        <span class="pct tnum ${d >= 85 ? 'ok' : d >= 70 ? 'warn' : 'bad'}">${d}%</span><span class="chev">›</span></a>`; }).join('')}
       </div>
     </section>
     <section class="card pad side-col" aria-label="Alertas">
@@ -481,7 +485,7 @@ function vPanel() {
     ${atencion.length ? `<div class="att">${atencion.slice(0, 6).map(e => { const d = dias(e.fecha_inhabilitado); return `<a class="att-it" href="#/equipo/${e.id}">
       <div class="att-n"><b>${esc(eqNom(e))}</b><small>${esc(eqCod(e))} · ${esc(plantaNom(e.planta_id))}</small></div>
       <div class="att-c hm" title="${esc(e.causa_inactividad || '')}">${esc(e.causa_inactividad ? nombreBonito(e.causa_inactividad).slice(0, 70) : 'Sin causa registrada')}</div>
-      ${pillEq(e)}
+      <div class="att-s">${pillEq(e)}${can('costos') ? (costoEquipo(e) == null ? (can('editarEquipo') ? `<span class="chip cost-add" role="button" tabindex="0" data-estado-eq="${e.id}">+ Costo</span>` : '<span class="chip">Sin costo</span>') : `<span class="cost-v tnum">${L(costoEquipo(e))}</span>`) : ''}</div>
       <div class="att-d tnum ${d > ALERTA_DIAS ? 'late' : d > AVISO_DIAS ? 'late-soft' : ''}">${d == null ? '<span class="chip">Sin fecha</span>' : `<b>${d}</b> días`}</div></a>`; }).join('')}</div>` : '<p class="cap">No hay equipos fuera de servicio.</p>'}
   </section>
   <p class="foot-note">${ult ? `Inventario actualizado el ${fecha(ult.fecha)}` : ''}</p>`;
@@ -503,12 +507,13 @@ function cambiarEstadoRapido(id) {
   const abiertas = S.D.incidencias.filter(i => i.equipo_id === id && ABIERTA(i.estado));
   let sel = e.estado === 'sin_info' ? '' : e.estado;
   modal(`
-    <div class="est-h"><h2>Cambiar estado</h2><p class="cap">${esc(eqNom(e))} · ${esc(eqCod(e))}</p></div>
+    <div class="est-h"><h2>Estado y costo</h2><p class="cap">${esc(eqNom(e))} · ${esc(eqCod(e))}</p></div>
     <div class="est-ops" role="radiogroup" aria-label="Nuevo estado">
       ${OPC_ESTADO.map(([k, t, d, c]) => `<button type="button" class="est-op" role="radio" aria-checked="${k === sel}" data-k="${k}" style="--c:${c}">
         <span class="est-dot"></span><span class="est-t"><b>${t}</b><small>${d}</small></span>${k === e.estado ? '<span class="est-now">Actual</span>' : ''}</button>`).join('')}
     </div>
     <div id="estAviso" class="note" hidden></div>
+    ${can('costos') ? `<label class="fld" id="estCostoF">Costo estimado de reparación<div class="money"><span>L</span><input class="ctl" id="estCosto" inputmode="decimal" placeholder="0.00" value="${costoEquipo(e) != null ? costoEquipo(e) : ''}"></div><small id="estCostoH">Suma a la inversión pendiente del panel.</small></label>` : ''}
     <label class="fld" id="estNotaF">Comentario (opcional)<textarea class="ctl" id="estNota" rows="2" placeholder="ej. Se cambió la bomba hidráulica"></textarea></label>
     <div class="err" id="estErr" hidden></div>
     <div class="form-acts" style="justify-content:space-between">
@@ -518,7 +523,9 @@ function cambiarEstadoRapido(id) {
     bg.querySelector('.modal').classList.add('est');
     const pintar = () => {
       $$('.est-op', bg).forEach(b => b.setAttribute('aria-checked', String(b.dataset.k === sel)));
-      $('#estOk', bg).disabled = !sel || sel === e.estado;
+      const cf = $('#estCostoF', bg);
+      if (cf) cf.hidden = sel === 'habilitado';
+      $('#estOk', bg).disabled = !sel || (sel === e.estado && !costoCambio());
       const av = $('#estAviso', bg);
       const txt = sel === 'habilitado' && abiertas.length ? `Tiene ${abiertas.length} falla${abiertas.length > 1 ? 's' : ''} abierta${abiertas.length > 1 ? 's' : ''} (${abiertas.map(i => i.codigo).join(', ')}): se marcará${abiertas.length > 1 ? 'n' : ''} como reparada${abiertas.length > 1 ? 's' : ''}.`
         : sel === 'taller' && abiertas.length ? `Las fallas abiertas de este equipo pasarán a «En reparación».`
@@ -526,10 +533,16 @@ function cambiarEstadoRapido(id) {
       av.textContent = txt; av.hidden = !txt;
       $('#estNota', bg).placeholder = sel === 'habilitado' ? 'ej. Se cambió la bomba hidráulica' : 'ej. Falla en el sistema eléctrico';
     };
+    const costoIni = costoEquipo(e);
+    const leerCosto = () => { const i = $('#estCosto', bg); if (!i) return undefined; const t = i.value.replace(/[L,\s]/gi, ''); return t === '' ? null : Number(t); };
+    const costoCambio = () => { const c = leerCosto(); return c !== undefined && sel !== 'habilitado' && c !== costoIni && !(c == null && costoIni == null); };
     $$('.est-op', bg).forEach(b => b.onclick = () => { sel = b.dataset.k; pintar(); });
+    if ($('#estCosto', bg)) $('#estCosto', bg).addEventListener('input', pintar);
     $('#estOk', bg).onclick = async ev => {
       await accion(ev.currentTarget, async () => {
-        const r = await S.db.estadoRapido(id, sel, $('#estNota', bg).value.trim() || null);
+        const c = leerCosto();
+        if (c !== undefined && c !== null && (isNaN(c) || c < 0)) throw new Error('Escriba el costo en números, por ejemplo 15000.');
+        const r = await S.db.estadoRapido(id, sel, $('#estNota', bg).value.trim() || null, sel !== 'habilitado' && costoCambio() ? c : undefined);
         cerrar();
         await recargar(); render();
         toast(`${eqNom(e)}: ${ESTADOS[sel]}${r && r.incidencias ? ` · ${r.incidencias} falla${r.incidencias > 1 ? 's' : ''} actualizada${r.incidencias > 1 ? 's' : ''}` : ''}`);
@@ -553,11 +566,61 @@ function filasClicables(m) {
   $$('tr.click', m).forEach(tr => tr.addEventListener('click', e => { if (!e.target.closest('a,button,input,select')) location.hash = tr.dataset.href; }));
 }
 
+
+// ================================================================ DETALLE POR NEGOCIO (desde el panel)
+function vNegocio(idRaw) {
+  const id = decodeURIComponent(idRaw || '');
+  const nom = id === '__sin' ? 'Sin negocio asignado' : negNom(id);
+  const eqs = S.D.equipos.filter(e => e.activo !== false && filtraNeg(e, id));
+  const k = { habilitado: 0, inhabilitado: 0, taller: 0, sin_info: 0 }; eqs.forEach(e => k[e.estado]++);
+  const disp = pct(k.habilitado, eqs.length - k.sin_info);
+  const parados = eqs.filter(parado).sort((a, b) => (a.fecha_inhabilitado || '9999').localeCompare(b.fecha_inhabilitado || '9999'));
+  const inv = inversionPendiente(eqs);
+  const nSin = parados.filter(e => costoEquipo(e) == null).length;
+  const agrupar = clave => {
+    const m = new Map();
+    eqs.forEach(e => { const g = clave(e) || 'Sin dato'; if (!m.has(g)) m.set(g, { n: 0, k: { habilitado: 0, inhabilitado: 0, taller: 0, sin_info: 0 } }); const x = m.get(g); x.n++; x.k[e.estado]++; });
+    return [...m.entries()].sort((a, b) => (b[1].k.inhabilitado + b[1].k.taller) - (a[1].k.inhabilitado + a[1].k.taller) || b[1].n - a[1].n);
+  };
+  const barras = (lista, href) => `<div class="bars">${lista.map(([g, x]) => { const d = pct(x.k.habilitado, x.n - x.k.sin_info); return `<${href ? `a href="${href(g)}"` : 'div'} class="brow${href ? ' brow-link' : ''}">
+      <div class="n"><b>${esc(g)}</b><small>${x.n} equipo${x.n > 1 ? 's' : ''}${x.k.inhabilitado + x.k.taller ? ` · ${x.k.inhabilitado + x.k.taller} parado${x.k.inhabilitado + x.k.taller > 1 ? 's' : ''}` : ''}</small></div>
+      <div class="bar">${ORDEN_ESTADOS.filter(s => x.k[s]).map(s => `<div class="${s}" style="width:${x.k[s] / x.n * 100}%" title="${ESTADOS[s]}: ${x.k[s]}"></div>`).join('')}</div>
+      <span class="pct tnum ${d >= 85 ? 'ok' : d >= 70 ? 'warn' : 'bad'}">${d}%</span>${href ? '<span class="chev">›</span>' : ''}</${href ? 'a' : 'div'}>`; }).join('')}</div>`;
+  const porPlanta = agrupar(e => plantaNom(e.planta_id) === '—' ? null : plantaNom(e.planta_id));
+  const porTipo = agrupar(e => e.tipo);
+  const plantaId = new Map(S.D.plantas.map(p => [p.nombre, p.id]));
+  const html = `
+  <div><a class="back" href="#/panel">${ico('atras', 'width="16" height="16"')}Panel ejecutivo</a>
+  <div class="ph"><div><p class="eyebrow-p">Negocio</p><h1>${esc(nom)}</h1></div>
+    <div class="acts"><a class="btn" href="#/inventario?negocio=${encodeURIComponent(id)}&estado=">Ver inventario completo</a></div></div></div>
+  <section class="card hero" aria-label="Resumen del negocio">
+    <div class="hero-ring">${anillo(disp)}<div class="hero-tot"><b class="tnum">${eqs.length}</b><span>equipos</span></div></div>
+    <div class="hero-stats">
+      <a class="hs" href="#/inventario?negocio=${encodeURIComponent(id)}&estado=habilitado"><span class="l"><span class="dot habilitado"></span>Operativos</span><b class="tnum">${k.habilitado}</b><small>${pct(k.habilitado, eqs.length)} %</small></a>
+      <a class="hs" href="#/inventario?negocio=${encodeURIComponent(id)}&estado=inhabilitado"><span class="l"><span class="dot inhabilitado"></span>Inhabilitados</span><b class="tnum">${k.inhabilitado}</b><small>${pct(k.inhabilitado, eqs.length)} %</small></a>
+      <a class="hs" href="#/inventario?negocio=${encodeURIComponent(id)}&estado=taller"><span class="l"><span class="dot taller"></span>En taller</span><b class="tnum">${k.taller}</b><small>${pct(k.taller, eqs.length)} %</small></a>
+      ${can('costos') ? `<a class="hs" href="#/inventario?negocio=${encodeURIComponent(id)}&estado=${nSin ? 'sincosto' : 'fuera'}"><span class="l">Inversión pendiente</span><b class="tnum" style="font-size:22px">${L(inv)}</b><small>${nSin ? `${nSin} parado${nSin > 1 ? 's' : ''} sin costo` : 'Todos con costo'}</small></a>` : ''}
+    </div>
+  </section>
+  <div class="row">
+    <section class="card pad grow"><div class="sec-h"><h2>Por planta</h2></div>${porPlanta.length ? barras(porPlanta, g => plantaId.has(g) ? `#/inventario?negocio=${encodeURIComponent(id)}&planta=${plantaId.get(g)}&estado=` : null) : '<p class="cap">Sin plantas.</p>'}</section>
+    <section class="card pad grow"><div class="sec-h"><h2>Por tipo de equipo</h2></div>${barras(porTipo.slice(0, 8))}</section>
+  </div>
+  <section class="card pad"><div class="sec-h"><h2>Equipos parados</h2>${parados.length ? `<a class="link-sm" href="#/inventario?negocio=${encodeURIComponent(id)}&estado=fuera">Ver los ${parados.length} →</a>` : ''}</div>
+    ${parados.length ? `<div class="att">${parados.slice(0, 8).map(e => { const d = dias(e.fecha_inhabilitado); return `<a class="att-it" href="#/equipo/${e.id}">
+      <div class="att-n"><b>${esc(eqNom(e))}</b><small>${esc(eqCod(e))} · ${esc(plantaNom(e.planta_id))}</small></div>
+      <div class="att-c hm">${esc(e.causa_inactividad ? nombreBonito(e.causa_inactividad).slice(0, 70) : 'Sin causa registrada')}</div>
+      <div class="att-s">${pillEq(e)}${can('costos') ? (costoEquipo(e) == null ? (can('editarEquipo') ? `<span class="chip cost-add" role="button" tabindex="0" data-estado-eq="${e.id}">+ Costo</span>` : '<span class="chip">Sin costo</span>') : `<span class="cost-v tnum">${L(costoEquipo(e))}</span>`) : ''}</div>
+      <div class="att-d tnum ${d > ALERTA_DIAS ? 'late' : d > AVISO_DIAS ? 'late-soft' : ''}">${d == null ? '<span class="chip">Sin fecha</span>' : `<b>${d}</b> días`}</div></a>`; }).join('')}</div>` : '<p class="cap">Todo el equipo de este negocio está operativo.</p>'}
+  </section>`;
+  return { titulo: nom, html };
+}
+
 // ================================================================ INVENTARIO
 function vInventario(_, params) {
   const f = S.filtros.inv || (S.filtros.inv = { q: '', negocio: '', planta: '', estado: '', tipo: '' });
   if (params.estado !== undefined) { f.estado = params.estado; f.pag = 1; }
-  if (params.negocio !== undefined) f.negocio = params.negocio;
+  if (params.negocio !== undefined) { f.negocio = params.negocio; f.planta = params.planta || ''; f.pag = 1; }
   if (params.estado !== undefined || params.negocio !== undefined) history.replaceState(null, '', '#/inventario');
   const tipos = [...new Set(S.D.equipos.map(e => e.tipo).filter(Boolean))].sort();
 
@@ -589,7 +652,7 @@ function vInventario(_, params) {
       && (!f.tipo || e.tipo === f.tipo)
       && (!q || [e.clave, e.codigo, e.codigo_sap, e.serie, e.descripcion, e.marca, e.modelo, e.ubicacion_excel, plantaNom(e.planta_id)].some(x => String(x || '').toUpperCase().includes(q))));
   };
-  const porEstado = (l, st) => !st ? l : l.filter(e => st === 'fuera' ? ['inhabilitado', 'taller'].includes(e.estado) : e.estado === st);
+  const porEstado = (l, st) => !st ? l : l.filter(e => st === 'fuera' ? parado(e) : st === 'sincosto' ? sinCosto(e) : e.estado === st);
   const filtrar = () => porEstado(base(), f.estado);
   const pintar = m => {
     const b = base(), l = porEstado(b, f.estado);
@@ -597,14 +660,14 @@ function vInventario(_, params) {
     if (f.pag > paginas) f.pag = paginas;
     const vis = l.slice((f.pag - 1) * POR_PAG, f.pag * POR_PAG);
     $('#invCuenta', m).textContent = `${S.D.equipos.length} equipos registrados`;
-    $('#invSeg', m).innerHTML = [['', 'Todos'], ['habilitado', 'Operativos'], ['fuera', 'Parados'], ['inhabilitado', 'Inhabilitados'], ['taller', 'En taller'], ['sin_info', 'Sin información']]
+    $('#invSeg', m).innerHTML = [['', 'Todos'], ['habilitado', 'Operativos'], ['fuera', 'Parados'], ['inhabilitado', 'Inhabilitados'], ['taller', 'En taller'], ['sin_info', 'Sin información'], ...(can('costos') ? [['sincosto', 'Parados sin costo']] : [])]
       .map(([k, t]) => { const n = porEstado(b, k).length; return n || !k ? `<button role="tab" aria-selected="${f.estado === k}" data-e="${k}">${k && k !== 'fuera' ? `<span class="dot ${k}"></span>` : ''}${t}<span class="n">${n}</span></button>` : ''; }).join('');
     $$('#invSeg button', m).forEach(x => x.onclick = () => { f.estado = x.dataset.e; f.pag = 1; pintar(m); });
     $('#invBody', m).innerHTML = vis.length ? vis.map(e => `<tr class="click" data-href="#/equipo/${e.id}">
       <td><a class="lk" href="#/equipo/${e.id}">${esc(eqNom(e))}</a><span class="sub">${esc(eqCod(e))}<span class="sm-only"> · ${esc(plantaNom(e.planta_id))}</span></span></td>
       <td class="nw hm">${esc(negNom(e.negocio_id))}</td><td class="nw hm">${esc(plantaNom(e.planta_id))}</td>
       <td class="hm">${e.marca || e.modelo ? esc([e.marca, e.modelo, e.anio].filter(Boolean).join(' · ')) : '<span class="cap">—</span>'}</td>
-      <td>${pillEq(e)}</td><td class="clip hm" title="${esc(e.observaciones || e.causa_inactividad || '')}" style="color:var(--muted)">${esc(e.observaciones || (e.causa_inactividad ? nombreBonito(e.causa_inactividad) : '') || '—')}</td></tr>`).join('')
+      <td>${pillEq(e)}${can('costos') && parado(e) ? (costoEquipo(e) == null ? (can('editarEquipo') ? ` <span class="chip cost-add" role="button" tabindex="0" data-estado-eq="${e.id}">+ Costo</span>` : ' <span class="chip">Sin costo</span>') : `<span class="sub tnum">${L(costoEquipo(e))}</span>`) : ''}</td><td class="clip hm" title="${esc(e.observaciones || e.causa_inactividad || '')}" style="color:var(--muted)">${esc(e.observaciones || (e.causa_inactividad ? nombreBonito(e.causa_inactividad) : '') || '—')}</td></tr>`).join('')
       : '<tr><td colspan="6"><div class="empty"><b>Sin resultados</b>Pruebe con otros filtros.</div></td></tr>';
     $('#invFoot', m).innerHTML = l.length ? `<span>${(f.pag - 1) * POR_PAG + 1}–${Math.min(f.pag * POR_PAG, l.length)} de ${l.length}</span>
       <div class="pager"><button class="btn sm" id="pgA" ${f.pag <= 1 ? 'disabled' : ''}>Anterior</button><span class="cap">Página ${f.pag} de ${paginas}</span><button class="btn sm" id="pgS" ${f.pag >= paginas ? 'disabled' : ''}>Siguiente</button></div>` : '';

@@ -84,7 +84,7 @@ class SheetsDB {
   async importar(equipos, archivo, detalle) { const j = await this.api('importar', { equipos, archivo, detalle }); return { nuevos: j.nuevos, actualizados: j.actualizados }; }
   async guardarPlanta(p) { await this.api('guardarPlanta', { planta: p }); }
   async guardarPerfil(p, plantas) { await this.api('guardarPerfil', { perfil: p, plantas }); }
-  async estadoRapido(id, estado, nota) { return this.api('estadoRapido', { id, estado, nota }); }
+  async estadoRapido(id, estado, nota, inversion) { return this.api('estadoRapido', { id, estado, nota, inversion }); }
   async crearUsuario(u) { return this.api('crearUsuario', { usuario: u }); }
   async cambiarPassword(id, password) { await this.api('resetPassword', { id, password }); }
   suscribir(cb) {
@@ -325,12 +325,13 @@ class DemoDB {
     return { nuevos, actualizados };
   }
   async guardarPlanta(p) { this.exigir(['maestro']); Object.assign(this.s.plantas.find(x => x.id === p.id), p); this.guardar(); }
-  async estadoRapido(id, estado, nota) {
+  async estadoRapido(id, estado, nota, inversion) {
     this.exigir(['maestro', 'admin', 'mantenimiento']);
     const eq = this.s.equipos.find(e => e.id === id);
     if (!eq) throw new Error('Equipo no encontrado');
     this.cambiarEstado(eq, estado, 'app');
-    if (estado === 'habilitado') { eq.causa_inactividad = null; eq.plazo_reparacion = null; } else if (nota) eq.causa_inactividad = nota;
+    if (estado === 'habilitado') { eq.causa_inactividad = null; eq.plazo_reparacion = null; eq.inversion_reparacion = null; } else if (nota) eq.causa_inactividad = nota;
+    if (estado !== 'habilitado' && inversion !== undefined) eq.inversion_reparacion = inversion;
     let n = 0;
     this.s.incidencias.filter(i => i.equipo_id === id && !['reparada', 'cerrada'].includes(i.estado)).forEach(i => {
       const ant = i.estado;
